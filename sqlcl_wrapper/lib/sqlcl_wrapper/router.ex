@@ -4,7 +4,7 @@ defmodule SqlclWrapper.Router do
 
   plug Plug.Parsers,
     parsers: [:json],
-    pass: ["application/json"],
+    pass: ["application/json", "text/plain"],
     json_decoder: Jason
 
   plug Plug.Logger, log: :info
