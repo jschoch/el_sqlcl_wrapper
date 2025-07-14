@@ -26,23 +26,39 @@ defmodule SqlclWrapper.SqlclProcess do
   end
 
   @impl true
-  def handle_call({:send_command, command_json}, from, state) do
-    # Extract ID from the command_json
-    parsed_command = Jason.decode!(command_json)
-    id = Map.get(parsed_command, "id") # ID must be present for a call
-
-    new_request_map = Map.put(state.request_map, id, from)
-
-    Logger.info("Attempting to send command to SQLcl process: #{command_json}")
-    Porcelain.Process.send_input(state.porcelain_pid, command_json <> "\n")
-    Logger.info("Command sent to SQLcl process.")
-    {:noreply, %{state | request_map: new_request_map}}
+  def handle_call({:send_command, command}, from, state) do
+    # If it's a JSON-RPC command, extract ID and store 'from'
+    case Jason.decode(command) do
+      {:ok, parsed_command} when is_map(parsed_command) ->
+        if Map.has_key?(parsed_command, "id") do
+          id = Map.get(parsed_command, "id")
+          new_request_map = Map.put(state.request_map, id, from)
+          Logger.info("Attempting to send JSON-RPC command to SQLcl process: #{command}")
+          Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
+          Logger.info("JSON-RPC command sent to SQLcl process.")
+          {:noreply, %{state | request_map: new_request_map}}
+        else
+          # It's a raw command (JSON but no ID), no ID to track, just send it
+          Logger.info("Attempting to send raw command (JSON, no ID) to SQLcl process: #{command}")
+          Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
+          Logger.info("Raw command (JSON, no ID) sent to SQLcl process.")
+          GenServer.reply(from, :ok) # Acknowledge receipt for raw commands
+          {:noreply, state}
+        end
+      _ ->
+        # It's a raw command (not JSON), no ID to track, just send it
+        Logger.info("Attempting to send raw command to SQLcl process: #{command}")
+        Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
+        Logger.info("Raw command sent to SQLcl process.")
+        GenServer.reply(from, :ok) # Acknowledge receipt for raw commands
+        {:noreply, state}
+    end
   end
 
   @impl true
-  def handle_cast({:send_notification, notification_json}, state) do
-    Logger.info("Attempting to send notification to SQLcl process: #{notification_json}")
-    Porcelain.Process.send_input(state.porcelain_pid, notification_json <> "\n")
+  def handle_cast({:send_notification, notification}, state) do
+    Logger.info("Attempting to send notification to SQLcl process: #{notification}")
+    Porcelain.Process.send_input(state.porcelain_pid, notification <> "\n")
     Logger.info("Notification sent to SQLcl process.")
     {:noreply, state}
   end
@@ -88,7 +104,7 @@ defmodule SqlclWrapper.SqlclProcess do
           {:noreply, state}
         end
       _ ->
-        # Not a valid JSON or not a map, broadcast to subscribers
+        # Not a valid JSON or not a map, broadcast raw data to subscribers
         for pid <- state.subscribers do
           send(pid, {:sqlcl_output, {:stdout, data}})
         end
@@ -104,13 +120,19 @@ defmodule SqlclWrapper.SqlclProcess do
   end
 
   # Client API
-  def send_command(command_json, timeout \\ 5000) do # Default timeout of 5 seconds
-    # Determine if it's a request (has an ID) or a notification (no ID)
-    parsed_command = Jason.decode!(command_json)
-    if Map.has_key?(parsed_command, "id") do
-      GenServer.call(__MODULE__, {:send_command, command_json}, timeout)
-    else
-      GenServer.cast(__MODULE__, {:send_notification, command_json})
+  def send_command(command, timeout \\ 5000) do # Default timeout of 5 seconds
+    # Attempt to parse as JSON to determine if it's a request or notification
+    case Jason.decode(command) do
+      {:ok, parsed_command} when is_map(parsed_command) ->
+        if Map.has_key?(parsed_command, "id") do
+          GenServer.call(__MODULE__, {:send_command, command}, timeout)
+        else
+          # It's JSON but no ID, treat as a notification
+          GenServer.cast(__MODULE__, {:send_notification, command})
+        end
+      _ ->
+        # Not JSON, treat as a raw command (e.g., "exit", "show release")
+        GenServer.call(__MODULE__, {:send_command, command}, timeout)
     end
   end
 

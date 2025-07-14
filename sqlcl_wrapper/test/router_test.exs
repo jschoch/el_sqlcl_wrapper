@@ -15,7 +15,18 @@ defmodule SqlclWrapper.RouterTest do
     Logger.info("Starting SQLcl process for test suite setup...")
     {:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
     wait_for_sqlcl_startup(pid)
-    Logger.info("SQLcl process ready for test suite setup.")
+    Logger.info("SQLcl process ready for test suite setup. Giving it a moment...")
+    Process.sleep(1000) # Give SQLcl a moment to fully initialize after startup message
+    Logger.info("SQLcl process should be ready now.")
+
+    # Perform MCP handshake
+    Logger.info("Attempting to send command to SQLcl process: {\"jsonrpc\": \"2.0\", \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2024-11-05\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"my-stdio-client\", \"version\": \"1.0.0\"}}, \"id\": 1}")
+    {:ok, init_resp} = SqlclWrapper.SqlclProcess.send_command(~s({"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "my-stdio-client", "version": "1.0.0"}}, "id": 1}))
+    Logger.info("Received initialize response: #{inspect(init_resp)}")
+
+    Logger.info("Attempting to send notification to SQLcl process: {\"jsonrpc\": \"2.0\", \"method\": \"notifications/initialized\", \"params\": {}}")
+    SqlclWrapper.SqlclProcess.send_command(~s({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}))
+    Logger.info("Notification sent to SQLcl process.")
 
     ExUnit.Callbacks.on_exit fn ->
       if pid = Process.whereis(SqlclWrapper.SqlclProcess) do
@@ -27,15 +38,33 @@ defmodule SqlclWrapper.RouterTest do
   end
 
   test "POST /tool sends command to SQLcl process" do
-    command = "list-connections"
+    # The router expects JSON, so send a JSON-RPC tool call
+    json_rpc_command = %{
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: %{
+        name: "list-connections",
+        arguments: %{}
+      }
+    } |> Jason.encode!()
+
     conn =
-      conn(:post, "/tool", command)
-      |> put_req_header("content-type", "text/plain")
+      conn(:post, "/tool", json_rpc_command)
+      |> put_req_header("content-type", "application/json")
       |> SqlclWrapper.Router.call(@opts)
 
     assert conn.state == :sent
     assert conn.status == 200
-    assert conn.resp_body == "Command sent to SQLcl process."
+    # The response body should now be JSON from the SQLcl process
+    parsed_body = Jason.decode!(conn.resp_body)
+    assert parsed_body["jsonrpc"] == "2.0"
+    assert parsed_body["id"] == 1
+    assert parsed_body["result"] != nil
+    assert parsed_body["result"]["isError"] == false
+    assert parsed_body["result"]["content"] != nil
+    assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "theconn") end)
+    assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "test123") end)
   end
 
   test "GET /tool establishes SSE connection and receives data" do
@@ -46,45 +75,65 @@ defmodule SqlclWrapper.RouterTest do
 
     # In a separate process, send a command via a POST request
     Task.start(fn ->
-      conn(:post, "/tool", "list-connections")
-      |> put_req_header("content-type", "text/plain")
+      json_rpc_command = %{
+        jsonrpc: "2.0",
+        id: 2, # Use a different ID for this request
+        method: "tools/call",
+        params: %{
+          name: "list-connections",
+          arguments: %{}
+        }
+      } |> Jason.encode!()
+
+      conn(:post, "/tool", json_rpc_command)
+      |> put_req_header("content-type", "application/json")
       |> SqlclWrapper.Router.call(@opts)
     end)
 
     # Wait for the SSE event, ignoring other messages
     assert {:ok, body} = wait_for_chunk(15000)
-    IO.inspect(body, label: "Output from list-connections")
+    IO.inspect(body, label: "Output from list-connections SSE")
+
     # The body will contain the "data: " prefix from the SSE format.
-    # For example, you could assert:
-    # assert body =~ "data: some expected output"
+    # We need to parse the JSON part of the SSE data.
+    assert body =~ "data: "
+    # Extract the JSON string after "data: "
+    json_string = String.replace(body, "data: ", "")
+    parsed_sse_data = Jason.decode!(json_string)
+
+    assert parsed_sse_data["jsonrpc"] == "2.0"
+    assert parsed_sse_data["id"] == 2 # Assert on the ID used in the Task
+    assert parsed_sse_data["result"] != nil
+    assert parsed_sse_data["result"]["isError"] == false
+    assert parsed_sse_data["result"]["content"] != nil
+    assert Enum.any?(parsed_sse_data["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "theconn") end)
+    assert Enum.any?(parsed_sse_data["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "test123") end)
   end
 
 
   test "POST /tool sends 'exit' command and stops SQLcl process" do
+    # Send "exit" as a raw command, as per SqlclProcess's handling
     command = "exit"
     conn =
       conn(:post, "/tool", command)
-      |> put_req_header("content-type", "text/plain")
+      |> put_req_header("content-type", "text/plain") # "exit" is not JSON
       |> SqlclWrapper.Router.call(@opts)
 
     assert conn.state == :sent
     assert conn.status == 200
-    assert conn.resp_body == "Command sent to SQLcl process."
+    # The response body for raw commands is now "OK" from SqlclProcess
+    assert conn.resp_body == "OK"
 
     # Give the process a moment to terminate
-    :timer.sleep(1000)
-    pid = Process.whereis(SqlclWrapper.SqlclProcess)
-    Process.exit(pid, :kill)
-    :timer.sleep(100)
+    :timer.sleep(2000) # Increased sleep to allow for graceful shutdown
     # Assert that the SQLcl process is no longer running
     assert Process.whereis(SqlclWrapper.SqlclProcess) == nil
   end
 
-  test "SSE functions can be called" do
-    conn = conn(:get, "/tool")
-    SqlclWrapper.Router.send_sse_data(conn, "test")
-    SqlclWrapper.Router.stream_sqlcl_output(conn)
-  end
+  # This test is problematic as it tries to call internal functions directly
+  # and doesn't properly simulate the SSE flow. It's better to rely on
+  # "GET /tool establishes SSE connection and receives data" for SSE testing.
+  # Removing this test for now.
 
   test "handles unknown routes with 404" do
     conn =
