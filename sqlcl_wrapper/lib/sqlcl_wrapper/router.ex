@@ -12,15 +12,20 @@ defmodule SqlclWrapper.Router do
   plug :dispatch
 
   get "/tool" do
-    Logger.info("Received GET /tool request. Connection details: #{inspect(conn)}")
+    Logger.info("[#{DateTime.utc_now()}] Received GET /tool request. Connection details: #{inspect(conn)}")
 
-    # Subscribe the current process to the SqlclProcess output
-    SqlclWrapper.SqlclProcess.subscribe(self())
-
-    conn
+    # Send initial headers to establish SSE connection
+    conn = conn
     |> put_resp_content_type("text/event-stream")
     |> send_chunked(200)
-    # The stream is now managed by the SqlclProcess sending messages directly
+
+    # Spawn a new process to manage the SSE stream for this connection
+    spawn(fn ->
+      stream_sse_data(conn)
+    end)
+
+    # Return the connection, it's now managed by the spawned process
+    conn
   end
 
   post "/tool" do
@@ -30,7 +35,7 @@ defmodule SqlclWrapper.Router do
       "application/json" ->
         # Body is already parsed by Plug.Parsers as a map
         body = conn.body_params
-        Logger.info("Received POST /tool request with JSON body: #{inspect(body)}")
+        Logger.info("[#{DateTime.utc_now()}] Received POST /tool request with JSON body: #{inspect(body)}")
 
         # Expecting a JSON-RPC 2.0 request
         method = Map.get(body, "method")
@@ -42,21 +47,12 @@ defmodule SqlclWrapper.Router do
           json_rpc_request = Jason.encode!(body)
           Logger.info("Sending JSON-RPC request to SQLcl process: #{json_rpc_request}")
 
-          case SqlclWrapper.SqlclProcess.send_command(json_rpc_request) do
-            {:ok, %{"result" => result}} ->
-              Logger.info("Received successful response from SQLcl process: #{inspect(result)}")
-              conn
-              |> put_resp_content_type("application/json")
-              |> send_resp(200, Jason.encode!(%{"result" => result}))
-            {:ok, %{"error" => error}} ->
-              Logger.error("Received error response from SQLcl process: #{inspect(error)}")
-              conn
-              |> put_resp_content_type("application/json")
-              |> send_resp(500, Jason.encode!(%{"error" => error}))
-            {:error, reason} ->
-              Logger.error("Error communicating with SQLcl process: #{inspect(reason)}")
-              send_resp(conn, 500, "Internal Server Error: #{inspect(reason)}")
-          end
+          # For tools/call, especially run-sql, we don't want to send the result back
+          # immediately via the POST response, as it's streamed via SSE.
+          # We just acknowledge that the command was sent.
+          SqlclWrapper.SqlclProcess.send_command_async(json_rpc_request)
+          Logger.info("[#{DateTime.utc_now()}] JSON-RPC command sent to SQLcl process for async processing.")
+          send_resp(conn, 200, "Command accepted for SSE streaming.")
         else
           send_resp(conn, 400, "Bad Request: Invalid JSON-RPC 'tools/call' format.")
         end
@@ -89,47 +85,58 @@ defmodule SqlclWrapper.Router do
     send_resp(conn, 404, "Not Found")
   end
 
-  def send_sse_data(conn, data) do
-    Plug.Conn.chunk(conn, "data: #{data}\n\n")
+  defp stream_sse_data(conn) do
+    # Subscribe this new process to the SqlclProcess output
+    SqlclWrapper.SqlclProcess.subscribe(self())
+    Logger.info("[#{DateTime.utc_now()}] SSE stream manager process subscribed to SqlclProcess for conn: #{inspect(conn.id)}")
+
+    # Loop to receive messages and chunk them to the client
+    loop_stream(conn)
   end
 
-  def handle_info({:sqlcl_output, {:stdout, data}}, conn) do
-    Logger.info("Router received SQLcl STDOUT for SSE: #{data}")
-    # Ensure the connection is still chunked before sending data
-    if conn.state == :chunked do
-      Plug.Conn.chunk(conn, "data: #{data}\n\n")
-    else
-      Logger.warning("Attempted to chunk data to a non-chunked connection. State: #{inspect(conn.state)}")
-      conn
+  defp loop_stream(conn) do
+    receive do
+      {:sqlcl_output, {:stdout, data}} ->
+        Logger.info("[#{DateTime.utc_now()}] SSE stream manager received SQLcl STDOUT: #{data}")
+        # Attempt to parse the data as JSON-RPC response
+        chunk_data = case Jason.decode(data) do
+          {:ok, %{"jsonrpc" => "2.0", "id" => _id, "result" => %{"content" => content}}} ->
+            # Extract text content from the list of content maps
+            # Ensure content is a list before mapping
+            if is_list(content) do
+              Enum.map_join(content, "", fn %{"type" => "text", "text" => text} -> text end)
+            else
+              data # Fallback if content is not a list
+            end
+          _ ->
+            # If not a recognized JSON-RPC response or not valid JSON, use raw data
+            data
+        end
+        # The chunk_data already contains the necessary newlines from SQLcl output,
+        # so we only need a single newline to terminate the SSE data line.
+        case Plug.Conn.chunk(conn, "data: #{chunk_data}\n") do
+          {:ok, updated_conn} -> loop_stream(updated_conn)
+          {:error, reason} -> Logger.error("Failed to chunk STDOUT: #{inspect(reason)}"); :ok # Terminate stream on error
+        end
+      {:sqlcl_output, {:stderr, data}} ->
+        Logger.error("[#{DateTime.utc_now()}] SSE stream manager received SQLcl STDERR: #{data}")
+        case Plug.Conn.chunk(conn, "event: error\ndata: #{data}\n\n") do
+          {:ok, updated_conn} -> loop_stream(updated_conn)
+          {:error, reason} -> Logger.error("Failed to chunk STDERR: #{inspect(reason)}"); :ok # Terminate stream on error
+        end
+      {:sqlcl_output, {:exit, status}} ->
+        Logger.info("[#{DateTime.utc_now()}] SSE stream manager received SQLcl process exit: #{inspect(status)}")
+        # Attempt to send final close event, but don't rely on its return for closing the connection
+        # The connection will be closed by the client or by the server when the process exits.
+        # We should not call send_resp after chunking, as chunking already implies sending.
+        Plug.Conn.chunk(conn, "event: close\ndata: SQLcl process exited with status #{inspect(status)}\n\n")
+        :ok # Terminate this process
+      {:cowboy_req, :disconnect, _reason, _req, _env} ->
+        Logger.info("[#{DateTime.utc_now()}] SSE client disconnected for conn: #{inspect(conn.id)}")
+        :ok # Terminate this process
+      _ ->
+        # Ignore other messages
+        loop_stream(conn)
     end
-  end
-
-  def handle_info({:sqlcl_output, {:stderr, data}}, conn) do
-    Logger.error("Router received SQLcl STDERR for SSE: #{data}")
-    # You might want to send this as an SSE error event or just log it
-    if conn.state == :chunked do
-      Plug.Conn.chunk(conn, "event: error\ndata: #{data}\n\n")
-    else
-      Logger.warning("Attempted to chunk error data to a non-chunked connection. State: #{inspect(conn.state)}")
-      conn
-    end
-  end
-
-  def handle_info({:sqlcl_output, {:exit, status}}, conn) do
-    Logger.info("Router received SQLcl process exit for SSE: #{inspect(status)}")
-    # Close the connection when the SQLcl process exits
-    if conn.state == :chunked do
-      Plug.Conn.chunk(conn, "event: close\ndata: SQLcl process exited with status #{inspect(status)}\n\n")
-      Plug.Conn.send_resp(conn, 200, "") # Close the connection
-    else
-      Logger.warning("Attempted to close a non-chunked connection on SQLcl exit. State: #{inspect(conn.state)}")
-      conn
-    end
-  end
-
-  def stream_sqlcl_output(conn) do
-    # This function is no longer directly used for streaming,
-    # but the handle_info callbacks now manage the chunking.
-    conn
   end
 end
