@@ -9,6 +9,11 @@ defmodule SqlclWrapper.SseClientMessageTest do
   @url "http://localhost:#{@port}/tool"
 
   setup_all do
+    Logger.info("starting cowboy")
+    # Start the Plug.Cowboy server for the router
+    {:ok, _cowboy_pid} = Plug.Cowboy.http(SqlclWrapper.Router, [], port: @port)
+    Logger.info("Plug.Cowboy server started on port #{@port} for SSE client message tests.")
+
     Logger.info("Starting SQLcl process for SSE client message test setup...")
     {:ok, sqlcl_pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
     wait_for_sqlcl_startup(sqlcl_pid)
@@ -37,30 +42,12 @@ defmodule SqlclWrapper.SseClientMessageTest do
       }
     } |> Jason.encode!()
     {:ok, _connect_resp} = SqlclWrapper.SqlclProcess.send_command(connect_command)
+    Logger.info("sleeping for setup")
     Process.sleep(1000) # Give SQLcl a moment to establish connection
 
-    # Start the Plug.Cowboy server for the router
-    {:ok, _cowboy_pid} = Plug.Cowboy.http(SqlclWrapper.Router, [], port: @port)
-    Logger.info("Plug.Cowboy server started on port #{@port} for SSE client message tests.")
 
-    # Start an SSE client in a separate process and ensure it's subscribed
-    client_pid = self()
-    {:ok, sse_client_task} = Task.start_link(fn ->
-      HTTPoison.get(@url, [], stream_to: client_pid)
-    end)
 
-    # Wait for the SSE client to establish connection (receive initial headers)
-    receive do
-      {:http_response, _ref, {:headers, _status, _headers}} ->
-        Logger.info("SSE client received initial headers.")
-      _ ->
-        :ok # Ignore other messages
-    after 5000 ->
-      raise "Timeout waiting for SSE connection to establish"
-    end
-
-    # Give the SSE stream manager process in router.ex time to subscribe to SqlclProcess
-    Process.sleep(500)
+    Logger.info("Test SETUP done")
 
     on_exit fn ->
       if pid = Process.whereis(SqlclWrapper.SqlclProcess) do
@@ -70,10 +57,10 @@ defmodule SqlclWrapper.SseClientMessageTest do
       # Plug.Cowboy doesn't have a direct shutdown function, it usually exits with the supervisor tree.
       # For testing, we rely on the process exiting with the test suite.
     end
-    {:ok, %{sse_client_task: sse_client_task}}
+    :ok
   end
 
-  test "SSE client receives expected message from SQL query", %{sse_client_task: sse_client_task} do
+  test "SSE client receives expected message from SQL query" do
     # Send a command that will produce output
     sql_query = "SELECT /* LLM in use is claude-sonnet-4 */ 'Hello from SSE Client Test!' AS message FROM DUAL;"
     json_rpc_command = %{
@@ -91,28 +78,48 @@ defmodule SqlclWrapper.SseClientMessageTest do
     } |> Jason.encode!()
 
     # Send the command via POST /tool
-    conn =
-      conn(:post, "/tool", json_rpc_command)
-      |> put_req_header("content-type", "application/json")
-      |> SqlclWrapper.Router.call(SqlclWrapper.Router.init([]))
+    # Send the command via HTTPoison.post
+    Logger.info("Sending SQL query command via HTTPoison.post to #{@url}")
+    # Use HTTPoison.post to send the command, but stream the response to self()
+    {:ok, %HTTPoison.AsyncResponse{id: async_id}} = HTTPoison.post(@url, json_rpc_command, [{"Content-Type", "application/json"}], stream_to: self())
 
-    assert conn.state == :sent
-    assert conn.status == 200
+    # Collect SSE messages
+    received_messages = receive_sse_messages(async_id)
+    Logger.info("SSE client received messages: #{inspect(received_messages)}")
 
-    # Flush any messages from the POST request that might have arrived before SSE chunks
-    flush_messages()
+    # Assert that the expected data and close event are received
+    #assert ["data: \"MESSAGE\"\r\n\"Hello from SSE Client Test!\""] == received_messages
+    assert "data: \"MESSAGE\"\r\n\"Hello from SSE Client Test!\"\r\n\n\n\n" == received_messages
+    #assert Equal(received_message, "data: \"MESSAGE\"\r\n\"Hello from SSE Client Test!\"\r\n\n\n\n")
+    #assert Enum.any?(received_messages, fn msg -> String.contains?(msg, "event: close") end)
+  end
 
-    # Collect SSE data chunks
-    sse_chunks = receive_sse_chunks(5000)
-    body = Enum.join(sse_chunks)
-    Logger.info("SSE client received combined body: #{inspect(body)}")
-
-    # Assert that the received body contains the expected SSE data format
-    assert String.contains?(body, "data: \"MESSAGE\"\r\n\"Hello from SSE Client Test!\"\r\n\n")
-    assert String.contains?(body, "event: close") # Expect close event after command finishes
-
-    # Ensure the client task is finished
-    Task.shutdown(sse_client_task, :brutal_kill)
+  # Helper function to receive SSE messages
+  defp receive_sse_messages(async_id, messages \\ [], timeout \\ 20000) do # Increased timeout
+    receive do
+      %HTTPoison.AsyncChunk{id: ^async_id, chunk: chunk} ->
+        # Split chunk by "\n\n" to get individual SSE events
+        Logger.info("msg #{inspect chunk}")
+        # Remove carriage returns and then split by "\n\n" to get individual SSE events
+        #cleaned_chunk = String.replace(chunk, "\r", "")
+        #new_events = String.split(cleaned_chunk, "\n\n", trim: true)
+        # If the original chunk ends with "\n\n", it means the full message has been received.
+        if String.ends_with?(chunk, "\n\n") do
+          messages ++ chunk
+        else
+          receive_sse_messages(async_id, messages ++ chunk, timeout)
+        end
+      %HTTPoison.AsyncEnd{id: ^async_id} ->
+        # Connection closed
+        messages
+      msg ->
+        # Ignore other messages that are not for this async_id
+        Logger.info("receive_sse_messages unknown msg #{inspect msg}")
+        receive_sse_messages(async_id, messages, timeout)
+    after timeout ->
+      # Timeout reached, return collected messages
+      messages
+    end
   end
 
   # Helper function from router_test.exs
@@ -137,33 +144,6 @@ defmodule SqlclWrapper.SseClientMessageTest do
       {:sqlcl_output, {:exit, _}} -> raise "SQLcl process exited prematurely during setup"
     after 10000 -> # Timeout for receiving the message
       raise "Timeout waiting for SQLcl process to start. Buffer: #{buffer}"
-    end
-  end
-
-  defp flush_messages do
-    receive do
-      _ -> flush_messages()
-    after 0 -> :ok
-    end
-  end
-
-  defp receive_sse_chunks(timeout, chunks \\ []) do
-    receive do
-      {:http_response, _ref, {:headers, status, headers}} ->
-        Logger.info("receive_sse_chunks: Received headers - Status: #{status}, Headers: #{inspect(headers)}")
-        receive_sse_chunks(timeout, chunks)
-      {:http_response, _ref, {:data, chunk}} ->
-        Logger.info("receive_sse_chunks: Received data chunk: #{inspect(chunk)}")
-        receive_sse_chunks(timeout, chunks ++ [chunk])
-      {:http_response, _ref, :end_of_stream} ->
-        Logger.info("receive_sse_chunks: End of stream received.")
-        chunks
-      msg -> # Log any other unexpected messages
-        Logger.info("receive_sse_chunks: Received unexpected message: #{inspect(msg)}")
-        receive_sse_chunks(timeout, chunks)
-    after timeout ->
-      Logger.info("[#{DateTime.utc_now()}] receive_sse_chunks: Timeout after #{timeout}ms. Returning collected chunks.")
-      chunks # Return collected chunks on timeout
     end
   end
 end

@@ -7,9 +7,13 @@ defmodule SqlclWrapper.MixProject do
       version: "0.1.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      elixirc_paths: elixirc_paths(Mix.env())
     ]
   end
+
+  defp elixirc_paths(:test), do: ["test/support", "lib"]
+  defp elixirc_paths(_), do: ["lib"]
 
   # Run "mix help compile.app" to learn about applications.
   def application do
@@ -27,7 +31,8 @@ defmodule SqlclWrapper.MixProject do
       {:porcelain, "~> 2.0"},
       {:phoenix_pubsub, "~> 2.0"},
       {:jason, "~> 1.2"},
-      {:httpoison, "~> 2.1", only: [:dev, :test]}
+      {:httpoison, "~> 2.1", only: [:dev, :test]},
+      {:mox, "~> 1.0", only: :test}
     ]
   end
 end

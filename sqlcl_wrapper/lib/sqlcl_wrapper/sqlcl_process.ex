@@ -29,7 +29,7 @@ defmodule SqlclWrapper.SqlclProcess do
   def handle_call({:send_command, command}, from, state) do
     # If it's a JSON-RPC command, extract ID and store 'from'
     case Jason.decode(command) do
-      {:ok, %{"id" => id} = parsed_command} ->
+      {:ok, %{"id" => id} = _parsed_command} ->
         new_request_map = Map.put(state.request_map, id, from)
         Logger.info("Attempting to send JSON-RPC command to SQLcl process: #{command}")
         Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
@@ -65,6 +65,14 @@ defmodule SqlclWrapper.SqlclProcess do
   end
 
   @impl true
+  def handle_cast({:send_command_async, command}, state) do
+    Logger.info("Attempting to send async command to SQLcl process: #{command}")
+    Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
+    Logger.info("Async command sent to SQLcl process.")
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info({:exit_status, status}, state) do
     Logger.info("SQLcl process exited with status: #{inspect(status)}")
     send(state.parent, {:sqlcl_output, {:exit, status}})
@@ -74,6 +82,7 @@ defmodule SqlclWrapper.SqlclProcess do
   @impl true
   def handle_info({_pid, :data, :out, data}, state) do
     Logger.info("[#{DateTime.utc_now()}] ***** SQLcl STDOUT: #{data}")
+    Logger.info("[#{DateTime.utc_now()}] SqlclProcess attempting to send output to parent and subscribers.")
     # Always send raw data to parent and subscribers
     send(state.parent, {:sqlcl_output, {:stdout, data}})
     for pid <- state.subscribers do
@@ -107,7 +116,7 @@ defmodule SqlclWrapper.SqlclProcess do
   def send_command(command, timeout \\ 5000) do # Default timeout of 5 seconds
     # Attempt to parse as JSON to determine if it's a request or notification
     case Jason.decode(command) do
-      {:ok, %{"id" => _id} = parsed_command} ->
+      {:ok, %{"id" => _id} = _parsed_command} ->
         GenServer.call(__MODULE__, {:send_command, command}, timeout)
       {:ok, _parsed_command} -> # JSON but no ID, treat as a notification
         GenServer.cast(__MODULE__, {:send_notification, command})
@@ -124,13 +133,5 @@ defmodule SqlclWrapper.SqlclProcess do
   # Client API for commands that don't require an immediate reply to the caller
   def send_command_async(command) do
     GenServer.cast(__MODULE__, {:send_command_async, command})
-  end
-
-  @impl true
-  def handle_cast({:send_command_async, command}, state) do
-    Logger.info("Attempting to send async command to SQLcl process: #{command}")
-    Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
-    Logger.info("Async command sent to SQLcl process.")
-    {:noreply, state}
   end
 end

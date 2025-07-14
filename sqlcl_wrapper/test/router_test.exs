@@ -213,7 +213,7 @@ defmodule SqlclWrapper.RouterTest do
     startup_message = "---------- MCP SERVER STARTUP ----------\nMCP Server started successfully on Sun Jul 13 16:52:24 PDT 2025\nPress Ctrl+C to stop the server\n----------------------------------------"
     send(self(), {:sqlcl_output, {:stdout, startup_message}})
     assert wait_for_sqlcl_startup(self(), "") == :ok
-  end
+  end # Missing 'end' for the test block
 
   defp wait_for_sqlcl_startup(pid, buffer \\ "") do
     receive do
@@ -237,4 +237,5 @@ defmodule SqlclWrapper.RouterTest do
     after 10000 -> # Timeout for receiving the message
       raise "Timeout waiting for SQLcl process to start. Buffer: #{buffer}"
     end
-  end
+  end # Missing 'end' for the defp function
+end # Missing 'end' for the module
