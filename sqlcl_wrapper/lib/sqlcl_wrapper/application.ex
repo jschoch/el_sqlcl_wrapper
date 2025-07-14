@@ -7,9 +7,14 @@ defmodule SqlclWrapper.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      Plug.Cowboy.child_spec(scheme: :http, plug: SqlclWrapper.Router, options: [port: 4000])
-    ]
+    children = []
+
+    # Only start Plug.Cowboy server in non-test environments
+    children = if Mix.env() != :test do
+      [Plug.Cowboy.child_spec(scheme: :http, plug: SqlclWrapper.Router, options: [port: 4000])] ++ children
+    else
+      children
+    end
 
     # Only start SqlclWrapper.SqlclProcess in non-test environments
     children = if Mix.env() != :test do

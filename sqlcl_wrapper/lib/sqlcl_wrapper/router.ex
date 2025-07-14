@@ -93,7 +93,6 @@ defmodule SqlclWrapper.Router do
     Plug.Conn.chunk(conn, "data: #{data}\n\n")
   end
 
-  @impl true
   def handle_info({:sqlcl_output, {:stdout, data}}, conn) do
     Logger.info("Router received SQLcl STDOUT for SSE: #{data}")
     # Ensure the connection is still chunked before sending data
@@ -105,7 +104,6 @@ defmodule SqlclWrapper.Router do
     end
   end
 
-  @impl true
   def handle_info({:sqlcl_output, {:stderr, data}}, conn) do
     Logger.error("Router received SQLcl STDERR for SSE: #{data}")
     # You might want to send this as an SSE error event or just log it
@@ -117,7 +115,6 @@ defmodule SqlclWrapper.Router do
     end
   end
 
-  @impl true
   def handle_info({:sqlcl_output, {:exit, status}}, conn) do
     Logger.info("Router received SQLcl process exit for SSE: #{inspect(status)}")
     # Close the connection when the SQLcl process exits

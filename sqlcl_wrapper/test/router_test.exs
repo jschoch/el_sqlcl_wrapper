@@ -238,13 +238,3 @@ defmodule SqlclWrapper.RouterTest do
       raise "Timeout waiting for SQLcl process to start. Buffer: #{buffer}"
     end
   end
-
-  defp wait_for_chunk(timeout) do
-    receive do
-      {:chunk, body} -> {:ok, body}
-      _ -> wait_for_chunk(timeout)
-    after
-      timeout -> {:error, :timeout}
-    end
-  end
-end

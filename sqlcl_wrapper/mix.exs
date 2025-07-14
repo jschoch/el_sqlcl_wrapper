@@ -26,7 +26,8 @@ defmodule SqlclWrapper.MixProject do
       {:plug_cowboy, "~> 2.7"},
       {:porcelain, "~> 2.0"},
       {:phoenix_pubsub, "~> 2.0"},
-      {:jason, "~> 1.2"}
+      {:jason, "~> 1.2"},
+      {:httpoison, "~> 2.1", only: [:dev, :test]}
     ]
   end
 end
