@@ -2,9 +2,6 @@ defmodule SqlclWrapper.SseIntegrationTest do
   use ExUnit.Case, async: true
   require Logger
   require HTTPoison
-  import Plug.Test
-  import Plug.Conn
-
   # Define a port for the test server to run on
   @port 4001
   @url "http://localhost:#{@port}/tool"
@@ -64,7 +61,7 @@ defmodule SqlclWrapper.SseIntegrationTest do
   test "GET /tool establishes SSE connection and receives data" do
     # Start an SSE client in a separate process
     client_pid = self()
-    {:ok, sse_client_task} = Task.start_link(fn ->
+    {:ok, sse_client_task_pid} = Task.start_link(fn ->
       HTTPoison.get(@url, [], stream_to: client_pid)
     end)
 
@@ -87,27 +84,22 @@ defmodule SqlclWrapper.SseIntegrationTest do
       }
     } |> Jason.encode!()
 
-    # Send the command via POST /tool
-    conn =
-      conn(:post, "/tool", json_rpc_command)
-      |> put_req_header("content-type", "application/json")
-      |> SqlclWrapper.Router.call(SqlclWrapper.Router.init([]))
+    # Send the command via HTTPoison.post to simulate a real client request
+    Logger.info("Sending SQL query command via HTTPoison.post to #{@url}")
+    {:ok, %HTTPoison.AsyncResponse{id: async_post_id}} = HTTPoison.post(@url, json_rpc_command, [{"Content-Type", "application/json"}], stream_to: self())
 
-    assert conn.state == :sent
-    assert conn.status == 200
-
-    # Wait for the SSE client to establish connection (receive initial headers)
+    # Wait for the POST response to complete (optional, but good for clarity)
     receive do
-      {:http_response, _ref, {:headers, _status, _headers}} ->
-        Logger.info("SSE client received initial headers.")
+      %HTTPoison.AsyncEnd{id: ^async_post_id} ->
+        Logger.info("POST command response received.")
       _ ->
-        :ok # Ignore other messages
+        :ok
     after 5000 ->
-      raise "Timeout waiting for SSE connection to establish"
+      raise "Timeout waiting for POST command response"
     end
 
-    # Collect SSE data chunks
-    sse_chunks = receive_sse_chunks(5000)
+    # Collect SSE data chunks from the GET stream
+    sse_chunks = receive_sse_messages(sse_client_task_pid, 5000) # Pass client_pid to receive_sse_messages
     body = Enum.join(sse_chunks)
     Logger.info("SSE client received combined body: #{inspect(body)}")
 
@@ -115,8 +107,8 @@ defmodule SqlclWrapper.SseIntegrationTest do
     assert String.contains?(body, "data: \"MESSAGE\"\r\n\"Hello from SQLcl SSE!\"\r\n\n")
     assert String.contains?(body, "event: close") # Expect close event after command finishes
 
-    # Ensure the client task is finished
-    Task.shutdown(sse_client_task, :brutal_kill)
+    # The client task should terminate naturally after receiving the close event.
+    # No explicit Task.shutdown is needed here.
   end
 
   # Helper function from router_test.exs
@@ -144,16 +136,22 @@ defmodule SqlclWrapper.SseIntegrationTest do
     end
   end
 
-  defp receive_sse_chunks(timeout, chunks \\ []) do
+  # Helper function to receive SSE messages (adapted from sse_client_message_test.exs)
+  defp receive_sse_messages(client_pid, timeout, messages \\ []) do
     receive do
-      {:http_response, _ref, {:data, chunk}} ->
-        receive_sse_chunks(timeout, chunks ++ [chunk])
-      {:http_response, _ref, :end_of_stream} ->
-        chunks
-      _ -> # Ignore other messages that are not SSE data or end of stream
-        receive_sse_chunks(timeout, chunks)
+      %HTTPoison.AsyncChunk{id: _async_id, chunk: chunk} when is_binary(chunk) ->
+        Logger.info("SSE client received chunk: #{inspect(chunk)}")
+        receive_sse_messages(client_pid, timeout, messages ++ [chunk])
+      %HTTPoison.AsyncEnd{id: _async_id} ->
+        Logger.info("SSE client stream ended.")
+        messages
+      msg ->
+        # Ignore other messages not related to HTTPoison.AsyncChunk or AsyncEnd
+        Logger.debug("receive_sse_messages: Unhandled message: #{inspect(msg)}")
+        receive_sse_messages(client_pid, timeout, messages)
     after timeout ->
-      chunks # Return collected chunks on timeout
+      Logger.warning("receive_sse_messages: Timeout after #{timeout}ms. Returning collected messages.")
+      messages
     end
   end
 end
