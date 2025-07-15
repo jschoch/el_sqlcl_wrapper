@@ -25,19 +25,8 @@ defmodule SqlclWrapper.SseClientMessageTest do
   test "SSE client receives expected message from SQL query" do
     # Send a command that will produce output
     sql_query = "SELECT /* LLM in use is claude-sonnet-4 */ 'Hello from SSE Client Test!' AS message FROM DUAL;"
-    json_rpc_command = %{
-      jsonrpc: "2.0",
-      id: 101, # Use a different ID for this test
-      method: "tools/call",
-      params: %{
-        name: "run-sql",
-        arguments: %{
-          "sql" => sql_query,
-          "model" => "claude-sonnet-4",
-          "mcp_client" => "cline"
-        }
-      }
-    } |> Jason.encode!()
+    json_rpc_command  =  build_json_rpc_tool_call(101, "run-sql", sql_query)
+    Logger.info(" Raw rpc\n\n\n\t#{inspect json_rpc_command }")
 
     # Send the command via POST /tool
     # Send the command via HTTPoison.post
@@ -50,10 +39,15 @@ defmodule SqlclWrapper.SseClientMessageTest do
     Logger.info("SSE client received messages: #{inspect(received_messages)}")
 
     # Assert that the expected data and close event are received
-    #assert ["data: \"MESSAGE\"\r\n\"Hello from SSE Client Test!\""] == received_messages
-    assert "data: \"MESSAGE\"\r\n\"Hello from SSE Client Test!\"\r\n\n\n\n" == received_messages
-    #assert Equal(received_message, "data: \"MESSAGE\"\r\n\"Hello from SSE Client Test!\"\r\n\n\n\n")
-    #assert Enum.any?(received_messages, fn msg -> String.contains?(msg, "event: close") end)
+    assert is_list(received_messages)
+    assert ["data: \"MESSAGE\"\r\n\"Hello from SSE Client Test!\"\r\n\n\n\n"] == received_messages
+
+    {:ok, %HTTPoison.AsyncResponse{id: async_id}} = HTTPoison.post(@url, json_rpc_command, [{"Content-Type", "application/json"}], stream_to: self())
+
+    # Collect SSE messages
+    received_messages = receive_sse_messages(async_id)
+    Logger.info("SSE client received messages: #{inspect(received_messages)}")
+    assert is_list(received_messages)
   end
 
 
