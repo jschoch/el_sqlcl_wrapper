@@ -1,5 +1,6 @@
 defmodule SqlclWrapper.PorcelainTest do
   use ExUnit.Case
+  import SqlclWrapper.IntegrationTestHelper # Import the helper
   require Logger
 
   @moduledoc """
@@ -10,7 +11,7 @@ defmodule SqlclWrapper.PorcelainTest do
     # Start the SqlclProcess manually for the test suite
     Logger.info("Starting SQLcl process for test suite setup...")
     {:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
-    wait_for_sqlcl_startup(pid)
+    wait_for_sqlcl_startup(pid) # Use the helper's wait_for_sqlcl_startup
     Logger.info("SQLcl process ready for test suite setup. Giving it a moment...")
     Process.sleep(1000) # Give SQLcl a moment to fully initialize after startup message
     Logger.info("SQLcl process should be ready now.")
@@ -55,30 +56,6 @@ defmodule SqlclWrapper.PorcelainTest do
     # Assert that there is 1 connection as per the provided working test output
     assert length(tool_call_resp["result"]["content"]) == 1
     assert tool_call_resp["result"]["content"] == [%{"type" => "text", "text" => "theconn,test123"}]
-  end
-
-  defp wait_for_sqlcl_startup(pid, buffer \\ "") do
-    receive do
-      {:sqlcl_process_started, ^pid} ->
-        :ok
-      {:sqlcl_output, {:stdout, iodata}} ->
-        new_buffer = buffer <> IO.iodata_to_binary(iodata)
-        if String.contains?(new_buffer, "----------------------------------------") do
-          :ok
-        else
-          wait_for_sqlcl_startup(pid, new_buffer)
-        end
-      {:sqlcl_output, {:stderr, iodata}} ->
-        new_buffer = buffer <> IO.iodata_to_binary(iodata)
-        if String.contains?(new_buffer, "----------------------------------------") do
-          :ok
-        else
-          wait_for_sqlcl_startup(pid, new_buffer)
-        end
-      {:sqlcl_output, {:exit, _}} -> raise "SQLcl process exited prematurely during setup"
-    after 10000 -> # Timeout for receiving the message
-      raise "Timeout waiting for SQLcl process to start. Buffer: #{buffer}"
-    end
   end
 
 end

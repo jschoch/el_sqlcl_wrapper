@@ -2,6 +2,7 @@ defmodule SqlclWrapper.RouterTest do
   use ExUnit.Case
   import Plug.Test
   import Plug.Conn
+  import SqlclWrapper.IntegrationTestHelper # Import the helper
   require Logger
 
   @moduledoc """
@@ -9,28 +10,15 @@ defmodule SqlclWrapper.RouterTest do
   """
 
   @opts SqlclWrapper.Router.init([])
+  @port 4002 # Define a port for this specific test module to avoid conflicts
+  @url "http://localhost:#{@port}/tool"
 
   setup_all do
-    # Start the SqlclProcess manually for the test suite
-    Logger.info("Starting SQLcl process for test suite setup...")
-    {:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
-    wait_for_sqlcl_startup(pid)
-    Logger.info("SQLcl process ready for test suite setup. Giving it a moment...")
-    Process.sleep(1000) # Give SQLcl a moment to fully initialize after startup message
-    Logger.info("SQLcl process should be ready now.")
+    do_setup_all(%{port: @port, url: @url}) # Use the helper's setup_all
 
-    # Perform MCP handshake
-    Logger.info("Attempting to send command to SQLcl process: {\"jsonrpc\": \"2.0\", \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2024-11-05\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"my-stdio-client\", \"version\": \"1.0.0\"}}, \"id\": 1}")
-    {:ok, init_resp} = SqlclWrapper.SqlclProcess.send_command(~s({"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "my-stdio-client", "version": "1.0.0"}}, "id": 1}))
-    Logger.info("Received initialize response: #{inspect(init_resp)}")
-
-    Logger.info("Attempting to send notification to SQLcl process: {\"jsonrpc\": \"2.0\", \"method\": \"notifications/initialized\", \"params\": {}}")
-    SqlclWrapper.SqlclProcess.send_command(~s({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}))
-    Logger.info("Notification sent to SQLcl process.")
-
-    ExUnit.Callbacks.on_exit fn ->
+    on_exit fn ->
       if pid = Process.whereis(SqlclWrapper.SqlclProcess) do
-        Logger.info("Shutting down SQLcl process after test suite.")
+        Logger.info("Shutting down SQLcl process after router test suite.")
         Process.exit(pid, :kill)
       end
     end
@@ -213,29 +201,5 @@ defmodule SqlclWrapper.RouterTest do
     startup_message = "---------- MCP SERVER STARTUP ----------\nMCP Server started successfully on Sun Jul 13 16:52:24 PDT 2025\nPress Ctrl+C to stop the server\n----------------------------------------"
     send(self(), {:sqlcl_output, {:stdout, startup_message}})
     assert wait_for_sqlcl_startup(self(), "") == :ok
-  end # Missing 'end' for the test block
-
-  defp wait_for_sqlcl_startup(pid, buffer \\ "") do
-    receive do
-      {:sqlcl_process_started, ^pid} ->
-        :ok
-      {:sqlcl_output, {:stdout, iodata}} ->
-        new_buffer = buffer <> IO.iodata_to_binary(iodata)
-        if String.contains?(new_buffer, "MCP Server started successfully") do
-          :ok
-        else
-          wait_for_sqlcl_startup(pid, new_buffer)
-        end
-      {:sqlcl_output, {:stderr, iodata}} ->
-        new_buffer = buffer <> IO.iodata_to_binary(iodata)
-        if String.contains?(new_buffer, "MCP Server started successfully") do
-          :ok
-        else
-          wait_for_sqlcl_startup(pid, new_buffer)
-        end
-      {:sqlcl_output, {:exit, _}} -> raise "SQLcl process exited prematurely during setup"
-    after 10000 -> # Timeout for receiving the message
-      raise "Timeout waiting for SQLcl process to start. Buffer: #{buffer}"
-    end
-  end # Missing 'end' for the defp function
-end # Missing 'end' for the module
+  end
+end

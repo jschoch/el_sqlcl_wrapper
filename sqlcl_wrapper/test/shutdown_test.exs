@@ -1,5 +1,6 @@
 defmodule SqlclWrapper.ShutdownTest do
   use ExUnit.Case
+  import SqlclWrapper.IntegrationTestHelper # Import the helper
   require Logger
 
   @moduledoc """
@@ -8,8 +9,8 @@ defmodule SqlclWrapper.ShutdownTest do
 
   setup do
     Logger.info("Starting SQLcl process for shutdown test...")
-    {:ok, _pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
-    wait_for_sqlcl_startup()
+    {:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
+    wait_for_sqlcl_startup(pid) # Use the helper's wait_for_sqlcl_startup
     Logger.info("SQLcl process started for shutdown test.")
     :ok
   end
@@ -27,12 +28,4 @@ defmodule SqlclWrapper.ShutdownTest do
     assert Process.whereis(SqlclWrapper.SqlclProcess) == nil
   end
 
-  defp wait_for_sqlcl_startup() do
-    receive do
-      {:sqlcl_process_started, _pid} ->
-        :ok
-    after 10000 -> # Timeout for receiving the message
-      raise "Timeout waiting for SQLcl process to start"
-    end
-  end
 end
