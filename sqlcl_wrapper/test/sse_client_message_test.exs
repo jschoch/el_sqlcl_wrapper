@@ -2,8 +2,6 @@ defmodule SqlclWrapper.SseClientMessageTest do
   use ExUnit.Case, async: true
   require Logger
   require HTTPoison
-  import Plug.Test
-  import Plug.Conn
 
   @port 4001
   @url "http://localhost:#{@port}/tool"
@@ -18,7 +16,7 @@ defmodule SqlclWrapper.SseClientMessageTest do
     {:ok, sqlcl_pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
     wait_for_sqlcl_startup(sqlcl_pid)
     Logger.info("SQLcl process ready for SSE client message test setup.")
-    Process.sleep(1000) # Give SQLcl a moment to fully initialize
+    Process.sleep(100) # Give SQLcl a moment to fully initialize
 
     # Perform MCP handshake
     Logger.info("Attempting to send initialize command to SQLcl process for SSE test...")
@@ -43,7 +41,7 @@ defmodule SqlclWrapper.SseClientMessageTest do
     } |> Jason.encode!()
     {:ok, _connect_resp} = SqlclWrapper.SqlclProcess.send_command(connect_command)
     Logger.info("sleeping for setup")
-    Process.sleep(1000) # Give SQLcl a moment to establish connection
+    Process.sleep(100) # Give SQLcl a moment to establish connection
 
 
 

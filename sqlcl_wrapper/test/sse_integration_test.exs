@@ -7,6 +7,9 @@ defmodule SqlclWrapper.SseIntegrationTest do
   @url "http://localhost:#{@port}/tool"
 
   setup_all do
+    Logger.info("starting cowboy")
+    # Start the Plug.Cowboy server for the router
+    {:ok, _cowboy_pid} = Plug.Cowboy.http(SqlclWrapper.Router, [], port: @port)
     # Start the SqlclProcess manually for the test suite
     Logger.info("Starting SQLcl process for SSE integration test setup...")
     {:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
