@@ -10,45 +10,7 @@ defmodule SqlclWrapper.ListTablesIntegrationTest do
 
 
   setup_all do
-    Logger.info("starting cowboy")
-    # Start the Plug.Cowboy server for the router
-    {:ok, _cowboy_pid} = Plug.Cowboy.http(SqlclWrapper.Router, [], port: @port)
-    Logger.info("Plug.Cowboy server started on port #{@port} for SSE client message tests.")
-
-    Logger.info("Starting SQLcl process for SSE client message test setup...")
-    {:ok, sqlcl_pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
-    wait_for_sqlcl_startup(sqlcl_pid)
-    Logger.info("SQLcl process ready for SSE client message test setup.")
-    Process.sleep(1000) # Give SQLcl a moment to fully initialize
-
-    # Perform MCP handshake
-    Logger.info("Attempting to send initialize command to SQLcl process for SSE test...")
-    {:ok, _init_resp} = SqlclWrapper.SqlclProcess.send_command(~s({"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "my-stdio-client", "version": "1.0.0"}}, "id": 1}))
-    Logger.info("Attempting to send initialized notification to SQLcl process for SSE test...")
-    SqlclWrapper.SqlclProcess.send_command(~s({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}))
-
-    # Connect to the database using the "theconn" connection
-    Logger.info("Attempting to connect to database using 'theconn' for SSE test...")
-    connect_command = %{
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: %{
-        name: "connect",
-        arguments: %{
-          "connection_name" => "theconn",
-          "model" => "claude-sonnet-4",
-          "mcp_client" => "cline"
-        }
-      }
-    } |> Jason.encode!()
-    {:ok, _connect_resp} = SqlclWrapper.SqlclProcess.send_command(connect_command)
-    Logger.info("sleeping for setup")
-    Process.sleep(1000) # Give SQLcl a moment to establish connection
-
-
-
-    Logger.info("Test SETUP done")
+    do_setup_all(%{port: @port, url: @url})
 
     on_exit fn ->
       if pid = Process.whereis(SqlclWrapper.SqlclProcess) do
