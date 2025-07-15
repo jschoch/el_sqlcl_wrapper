@@ -102,11 +102,7 @@ defmodule SqlclWrapper.SseIntegrationTest do
 
     # Second query
     second_sql_query = "SELECT /* LLM in use is claude-sonnet-4 */ 'Second Query Result' AS message FROM DUAL;"
-    second_json_rpc_command = build_json_rpc_tool_call(102, "run-sql", %{
-      "sql" => second_sql_query,
-      "model" => "claude-sonnet-4",
-      "mcp_client" => "cline"
-    })
+    second_json_rpc_command = build_json_rpc_tool_call(102, "run-sql", second_sql_query)
 
     Logger.info("Sending second SQL query command via HTTPoison.post to #{@url}")
     {:ok, %HTTPoison.AsyncResponse{id: second_async_post_id}} = HTTPoison.post(@url, second_json_rpc_command, [{"Content-Type", "application/json"}], stream_to: self())
