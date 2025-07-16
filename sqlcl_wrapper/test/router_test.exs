@@ -27,30 +27,25 @@ defmodule SqlclWrapper.RouterTest do
 
   test "POST /tool sends command to SQLcl process" do
     # The router expects JSON, so send a JSON-RPC tool call
-    json_rpc_command = %{
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: %{
-        name: "list-connections",
-        arguments: %{}
-      }
-    } |> Jason.encode!()
+    json_rpc_command = build_json_rpc_tool_call(1,"list-connections","")
 
     conn =
       conn(:post, "/tool", json_rpc_command)
       |> put_req_header("content-type", "application/json")
       |> SqlclWrapper.Router.call(@opts)
 
-    assert conn.state == :sent
+    assert conn.state == :chunked, "conn.state was #{inspect conn.state}"
     assert conn.status == 200
     # The response body should now be JSON from the SQLcl process
-    parsed_body = Jason.decode!(conn.resp_body)
-    assert parsed_body["result"] != nil
-    assert parsed_body["result"]["isError"] == false
-    assert parsed_body["result"]["content"] != nil
-    assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "theconn") end)
-    assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "test123") end)
+    Logger.info("body was #{inspect conn.resp_body}")
+    #parsed_body = Jason.decode!(conn.resp_body)
+    parsed_body = conn.resp_body
+    assert parsed_body != nil
+    assert "data: theconn,test123\n\n" == parsed_body
+    #assert parsed_body["result"]["isError"] == false
+    #assert parsed_body["result"]["content"] != nil
+    #assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "theconn") end)
+    #assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "test123") end)
   end
 
   test "POST /tool connects and runs a SQL query" do

@@ -27,6 +27,9 @@ defmodule SqlclWrapper.Router do
         _id = Map.get(body, "id") # Unused, so prefix with underscore
         params = Map.get(body, "params", %{})
 
+        Logger.info("DEBUG: Method: #{inspect(method)}, Params: #{inspect(params)}")
+        Logger.info("DEBUG: Has 'name' key in params: #{Map.has_key?(params, "name")}")
+
         if method == "tools/call" && Map.has_key?(params, "name") do
           # Re-encode the received JSON-RPC request to send to SqlclProcess
           json_rpc_request = Jason.encode!(body)

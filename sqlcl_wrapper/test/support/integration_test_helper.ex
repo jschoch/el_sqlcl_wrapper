@@ -38,7 +38,7 @@ defmodule SqlclWrapper.IntegrationTestHelper do
         }
       }
     } |> Jason.encode!()
-    {:ok, _connect_resp} = SqlclWrapper.SqlclProcess.send_command(connect_command)
+    {:ok, _connect_resp} = SqlclWrapper.SqlclProcess.send_command(connect_command, 10000) # Increased timeout to 10 seconds
     Logger.info("sleeping for setup")
     Process.sleep(100) # Give SQLcl a moment to establish connection
 
@@ -48,23 +48,31 @@ defmodule SqlclWrapper.IntegrationTestHelper do
 
 
   end
-  def receive_sse_messages(async_id, messages \\ [], timeout \\ 20000) do # Increased timeout
+  def receive_sse_messages(sse_get_async_id, messages \\ [], timeout \\ 20000) do # Increased timeout
     receive do
-      %HTTPoison.AsyncChunk{id: ^async_id, chunk: chunk} ->
+      %HTTPoison.AsyncChunk{id: ^sse_get_async_id, chunk: chunk} ->
         Logger.info("msg #{inspect chunk}")
         new_messages = messages ++ [chunk] # Accumulate chunks as a list of strings
-        if String.ends_with?(chunk, "\n\n") do
-          new_messages # Return all accumulated chunks if a full message is received
+        if String.contains?(chunk, "event: close\n") do
+          new_messages # Return all accumulated chunks if a close event is received
         else
-          receive_sse_messages(async_id, new_messages, timeout)
+          receive_sse_messages(sse_get_async_id, new_messages, timeout)
         end
-      %HTTPoison.AsyncEnd{id: ^async_id} ->
+      %HTTPoison.AsyncEnd{id: ^sse_get_async_id} ->
         # Connection closed, return all accumulated messages
         messages
+      %HTTPoison.AsyncStatus{id: _, code: _} = msg ->
+        # Ignore status messages for any async_id
+        Logger.info("receive_sse_messages ignoring status msg #{inspect msg}")
+        receive_sse_messages(sse_get_async_id, messages, timeout)
+      %HTTPoison.AsyncHeaders{id: _, headers: _} = msg ->
+        # Ignore headers messages for any async_id
+        Logger.info("receive_sse_messages ignoring headers msg #{inspect msg}")
+        receive_sse_messages(sse_get_async_id, messages, timeout)
       msg ->
-        # Ignore other messages that are not for this async_id
+        # Ignore other messages that are not for the SSE GET async_id
         Logger.info("receive_sse_messages unknown msg #{inspect msg}")
-        receive_sse_messages(async_id, messages, timeout)
+        receive_sse_messages(sse_get_async_id, messages, timeout)
     after timeout ->
       # Timeout reached, raise an error as per "Erlang way"
       raise "Timeout waiting for SSE messages after #{timeout}ms. Received messages: #{inspect(messages)}"
@@ -95,8 +103,8 @@ defmodule SqlclWrapper.IntegrationTestHelper do
     end
   end
 
-  def build_json_rpc_tool_call(id, tool_name, the_sql) do
-    %{
+  def build_json_rpc_tool_call(id, tool_name, the_sql,dbg \\ false) do
+    map = %{
       jsonrpc: "2.0",
       id: id,
       method: "tools/call",
@@ -104,11 +112,15 @@ defmodule SqlclWrapper.IntegrationTestHelper do
         name: tool_name,
         arguments: %{
           "sql" => the_sql,
-          "model" => "claude_sonnnet-4",
-          #"model" => "how do i populate this?",
+          "model" => "claude-sonnet-4",
           "mcp_client" => "cline"
         }
       }
-    } |> Jason.encode!()
+    }
+    if dbg do
+
+      Logger.info("pretty rpc:\n#{inspect(map, pretty: true)}")
+    end
+    map |> Jason.encode!()
   end
 end
