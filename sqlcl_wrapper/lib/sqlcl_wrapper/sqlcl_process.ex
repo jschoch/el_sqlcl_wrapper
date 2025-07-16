@@ -15,14 +15,20 @@ defmodule SqlclWrapper.SqlclProcess do
 
     case Porcelain.spawn(@sqlcl_path, ["-mcp"], out: {:send, self()}, err: {:send, self()}) do
       %Porcelain.Process{} = p ->
+        Logger.info("Porcelain.spawn successful, PID: #{inspect(p.pid)}")
         send(parent, {:sqlcl_process_started, self()})
-        {:ok, %{porcelain_pid: p, parent: parent, subscribers: [], request_map: %{}, next_id: 1}}
+        {:ok, %{porcelain_pid: p, parent: parent, request_map: %{}, server_ready_flag: false, stdout_buffer: ""}}
 
-      _ ->
-        Logger.error("Failed to start SQLcl process. Check if '#{@sqlcl_path}' is a valid executable and accessible.")
+      other -> # Catch any other return value from Porcelain.spawn
+        Logger.error("Porcelain.spawn failed: #{inspect(other)}. Check if '#{@sqlcl_path}' is a valid executable and accessible.")
         send(parent, :sqlcl_process_failed_to_start)
         {:stop, :sqlcl_process_failed_to_start}
     end
+  end
+
+  @impl true
+  def handle_call(:is_server_ready, _from, state) do
+    {:reply, state.server_ready_flag, state}
   end
 
   @impl true
@@ -60,19 +66,6 @@ defmodule SqlclWrapper.SqlclProcess do
   end
 
   @impl true
-  def handle_cast({:subscribe, pid}, state) do
-    {:noreply, %{state | subscribers: [pid | state.subscribers]}}
-  end
-
-  @impl true
-  def handle_cast({:send_command_async, command}, state) do
-    Logger.info("Attempting to send async command to SQLcl process: #{command}")
-    Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
-    Logger.info("Async command sent to SQLcl process.")
-    {:noreply, state}
-  end
-
-  @impl true
   def handle_info({:exit_status, status}, state) do
     Logger.info("SQLcl process exited with status: #{inspect(status)}")
     send(state.parent, {:sqlcl_output, {:exit, status}})
@@ -82,34 +75,49 @@ defmodule SqlclWrapper.SqlclProcess do
   @impl true
   def handle_info({_pid, :data, :out, data}, state) do
     Logger.info("[#{DateTime.utc_now()}] ***** SQLcl STDOUT: #{data}")
-    Logger.info("[#{DateTime.utc_now()}] SqlclProcess attempting to send output to parent and subscribers.")
-    # Always send raw data to parent and subscribers
     send(state.parent, {:sqlcl_output, {:stdout, data}})
-    for pid <- state.subscribers do
-      send(pid, {:sqlcl_output, {:stdout, data}})
-    end
-
-    # Attempt to parse the data as JSON and reply to the specific caller if it's a JSON-RPC response with an ID
-    case Jason.decode(data) do
-      {:ok, %{"jsonrpc" => "2.0", "id" => id} = json_response} ->
-        if from = Map.get(state.request_map, id) do
-          GenServer.reply(from, {:ok, json_response})
-          {:noreply, %{state | request_map: Map.delete(state.request_map, id)}}
-        else
-          {:noreply, state} # No matching request, just broadcasted
-        end
-      {:ok, _other_json_response} ->
-        {:noreply, state} # Not a JSON-RPC response with an ID, just broadcasted
-      _ ->
-        {:noreply, state} # Not valid JSON, just broadcasted
-    end
+    process_output(data, state)
   end
 
   @impl true
   def handle_info({_pid, :data, :err, data}, state) do
     Logger.error("[#{DateTime.utc_now()}] ***** SQLcl STDERR: #{data}")
     send(state.parent, {:sqlcl_output, {:stderr, data}})
-    {:noreply, state}
+    process_output(data, state)
+  end
+
+  defp process_output(data, state) do
+    # Accumulate stdout/stderr data into a single buffer for readiness check
+    current_buffer = state.stdout_buffer <> IO.iodata_to_binary(data)
+    Logger.debug("[#{DateTime.utc_now()}] Current combined buffer: \"#{current_buffer}\"")
+
+    # Check for server ready message in the accumulated buffer
+    is_ready = String.contains?(current_buffer, "----------------------------------------")
+    Logger.debug("[#{DateTime.utc_now()}] String.contains?(\"----------------------------------------\"): #{is_ready}")
+
+    new_state = if not state.server_ready_flag and is_ready do
+      Logger.info("[#{DateTime.utc_now()}] SQLcl server reported ready. Setting server_ready_flag to true.")
+      %{state | server_ready_flag: true, stdout_buffer: ""} # Clear buffer on ready
+    else
+      %{state | stdout_buffer: current_buffer} # Update buffer
+    end
+
+    # Attempt to parse the data as JSON and reply to the specific caller if it's a JSON-RPC response with an ID
+    # This part remains specific to JSON-RPC responses, which are expected on stdout.
+    # If the JSON-RPC response can also come on stderr, this logic would need to be duplicated or refactored.
+    case Jason.decode(IO.iodata_to_binary(data)) do # Decode only the current data chunk for JSON-RPC
+      {:ok, %{"jsonrpc" => "2.0", "id" => id} = json_response} ->
+        if from = Map.get(new_state.request_map, id) do
+          GenServer.reply(from, {:ok, json_response})
+          {:noreply, %{new_state | request_map: Map.delete(new_state.request_map, id)}}
+        else
+          {:noreply, new_state} # No matching request, just broadcasted
+        end
+      {:ok, _other_json_response} ->
+        {:noreply, new_state} # Not a JSON-RPC response with an ID, just broadcasted
+      _ ->
+        {:noreply, new_state} # Not valid JSON, just broadcasted
+    end
   end
 
   # Client API
@@ -124,14 +132,5 @@ defmodule SqlclWrapper.SqlclProcess do
         # Not JSON, treat as a raw command (e.g., "exit", "show release")
         GenServer.call(__MODULE__, {:send_command, command}, timeout)
     end
-  end
-
-  def subscribe(pid) do
-    GenServer.cast(__MODULE__, {:subscribe, pid})
-  end
-
-  # Client API for commands that don't require an immediate reply to the caller
-  def send_command_async(command) do
-    GenServer.cast(__MODULE__, {:send_command_async, command})
   end
 end

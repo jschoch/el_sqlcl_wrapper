@@ -18,7 +18,7 @@ defmodule SqlclWrapper.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :hermes_mcp],
       mod: {SqlclWrapper.Application, []}
     ]
   end
@@ -29,8 +29,8 @@ defmodule SqlclWrapper.MixProject do
       {:plug, "~> 1.15"},
       {:plug_cowboy, "~> 2.7"},
       {:porcelain, "~> 2.0"},
-      {:phoenix_pubsub, "~> 2.0"},
       {:jason, "~> 1.2"},
+      {:hermes_mcp, "~> 0.12.1"},
       {:httpoison, "~> 2.1", only: [:dev, :test]},
       {:mox, "~> 1.0", only: :test}
     ]

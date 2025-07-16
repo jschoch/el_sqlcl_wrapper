@@ -7,4 +7,5 @@ config :sqlcl_wrapper,
 # Configure logging
 config :logger, :console,
   format: "[$level] $message\n",
-  metadata: [:file, :line]
+  metadata: [:file, :line],
+  level: :debug
