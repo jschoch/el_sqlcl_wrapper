@@ -78,6 +78,73 @@ defmodule SqlclWrapper.Router do
     end
   end
 
+  get "/tools" do
+    tools = [
+      %{
+        name: "list-connections",
+        description: "List all available oracle named/saved connections in the connections storage",
+        input_schema: %{
+          type: "object",
+          properties: %{
+            filter: %{type: "string"},
+            mcp_client: %{type: "string"},
+            model: %{type: "string"}
+          }
+        }
+      },
+      %{
+        name: "connect",
+        description: "Provides an interface to connect to a specified database. If a database connection is already active, prompt the user for confirmation before switching to the new connection. If no connection exists, list the available schemas for selection.",
+        input_schema: %{
+          type: "object",
+          properties: %{
+            connection_name: %{type: "string"},
+            mcp_client: %{type: "string"},
+            model: %{type: "string"}
+          }
+        }
+      },
+      %{
+        name: "disconnect",
+        description: "This tool performs a disconnection from the current session in an Oracle database. If a user is connected, it logs out cleanly and returns to the SQL prompt without an active database connection.",
+        input_schema: %{
+          type: "object",
+          properties: %{
+            mcp_client: %{type: "string"},
+            model: %{type: "string"}
+          }
+        }
+      },
+      %{
+        name: "run-sqlcl",
+        description: "This tool executes SQLcl commands in the SQLcl CLI. If the given command requires a database connection, it prompts the user to connect using the connect tool.",
+        input_schema: %{
+          type: "object",
+          properties: %{
+            sqlcl: %{type: "string"},
+            mcp_client: %{type: "string"},
+            model: %{type: "string"}
+          }
+        }
+      },
+      %{
+        name: "run-sql",
+        description: "This tool executes SQL queries in an Oracle database. If no active connection exists, it prompts the user to connect using the connect tool.",
+        input_schema: %{
+          type: "object",
+          properties: %{
+            sql: %{type: "string"},
+            mcp_client: %{type: "string"},
+            model: %{type: "string"}
+          }
+        }
+      }
+    ]
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(tools))
+  end
+
   match _ do
     send_resp(conn, 404, "Not Found")
   end
