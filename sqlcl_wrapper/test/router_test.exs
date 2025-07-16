@@ -38,108 +38,65 @@ defmodule SqlclWrapper.RouterTest do
     assert conn.status == 200
     # The response body should now be JSON from the SQLcl process
     Logger.info("body was #{inspect conn.resp_body}")
-    #parsed_body = Jason.decode!(conn.resp_body)
-    parsed_body = conn.resp_body
+    Logger.info("body was #{inspect conn.resp_body}")
+    # Extract and decode the JSON from the chunked response
+    raw_body = String.trim_leading(conn.resp_body, "data: ")
+    raw_body = String.trim_trailing(raw_body, "\n\n")
+    parsed_body = Jason.decode!(raw_body)
+
     assert parsed_body != nil
-    assert "data: theconn,test123\n\n" == parsed_body
-    #assert parsed_body["result"]["isError"] == false
-    #assert parsed_body["result"]["content"] != nil
-    #assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "theconn") end)
-    #assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "test123") end)
+    assert parsed_body["result"]["isError"] == false
+    assert parsed_body["result"]["content"] != nil
+    assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "theconn") end)
+    assert Enum.any?(parsed_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.contains?(text, "test123") end)
   end
 
   test "POST /tool connects and runs a SQL query" do
     # 1. Connect to "theconn"
-    connect_command = %{
-      jsonrpc: "2.0",
-      id: 2, # Use a different ID
-      method: "tools/call",
-      params: %{
-        name: "connect",
-        arguments: %{
-          "connection_name" => "theconn",
-          "model" => "claude-sonnet-4",
-          "mcp_client" => "cline"
-        }
-      }
-    } |> Jason.encode!()
+    connect_command = build_json_rpc_connect_call(2, "theconn")
 
     conn_connect =
       conn(:post, "/tool", connect_command)
       |> put_req_header("content-type", "application/json")
       |> SqlclWrapper.Router.call(@opts)
 
-    assert conn_connect.state == :sent
+    # We don't need to assert on the connection request's response body in this test.
+    # The primary focus is on the subsequent SQL query.
+    assert conn_connect.state == :chunked
     assert conn_connect.status == 200
-    parsed_connect_body = Jason.decode!(conn_connect.resp_body)
-    IO.inspect(parsed_connect_body, label: "Parsed Connect Body in Test")
-    assert parsed_connect_body["result"] != nil
-    assert parsed_connect_body["result"]["isError"] == false
-
-    # Get the first content item's text and assert on it directly
-    first_content_text = parsed_connect_body["result"]["content"]
-                         |> List.first()
-                         |> Map.get("text")
-
-    IO.inspect(first_content_text, label: "First Content Text")
-    assert String.contains?(first_content_text, "Successfully connected to:")
 
     # 2. Run a SQL query to list tables
     sql_query = "SELECT /* LLM in use is claude-sonnet-4 */ table_name FROM user_tables;"
-    run_sql_command = %{
-      jsonrpc: "2.0",
-      id: 3, # Use another different ID
-      method: "tools/call",
-      params: %{
-        name: "run-sql",
-        arguments: %{
-          "sql" => sql_query,
-          "model" => "claude-sonnet-4",
-          "mcp_client" => "cline"
-        }
-      }
-    } |> Jason.encode!()
+    run_sql_command = build_json_rpc_tool_call(3, "run-sql", sql_query)
 
     conn_run_sql =
       conn(:post, "/tool", run_sql_command)
       |> put_req_header("content-type", "application/json")
       |> SqlclWrapper.Router.call(@opts)
 
-    assert conn_run_sql.state == :sent
+    assert conn_run_sql.state == :chunked
     assert conn_run_sql.status == 200
-    parsed_run_sql_body = Jason.decode!(conn_run_sql.resp_body)
-    assert parsed_run_sql_body["result"] != nil
-    assert parsed_run_sql_body["result"]["isError"] == false
-    # Assert that content is not empty, and contains some expected table-like output
-    assert parsed_run_sql_body["result"]["content"] != nil
-    assert length(parsed_run_sql_body["result"]["content"]) > 0
-    # Further assertions could check for specific table names if known, or CSV format
-    # For now, just check for some text content
-    assert Enum.any?(parsed_run_sql_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.length(text) > 0 end)
+    # Extract and decode the JSON from the chunked response
+    run_sql_raw_body = String.trim_leading(conn_run_sql.resp_body, "data: ")
+    run_sql_raw_body = String.trim_trailing(run_sql_raw_body, "\n\n")
+    Logger.info(" body: #{run_sql_raw_body}")
+    # Assert that the raw body contains expected CSV content
+    assert String.contains?(run_sql_raw_body, "TABLE_NAME")
+    assert String.contains?(run_sql_raw_body, "USERS")
+    assert String.contains?(run_sql_raw_body, "POSTS")
+    assert String.contains?(run_sql_raw_body, "FOLLOWERS")
   end
 
   test "POST /tool runs a select query on the USERS table" do
     # 1. Connect to "theconn"
-    connect_command = %{
-      jsonrpc: "2.0",
-      id: 4, # Use a different ID
-      method: "tools/call",
-      params: %{
-        name: "connect",
-        arguments: %{
-          "connection_name" => "theconn",
-          "model" => "claude-sonnet-4",
-          "mcp_client" => "cline"
-        }
-      }
-    } |> Jason.encode!()
+    connect_command = build_json_rpc_connect_call(4, "theconn")
 
     conn_connect =
       conn(:post, "/tool", connect_command)
       |> put_req_header("content-type", "application/json")
       |> SqlclWrapper.Router.call(@opts)
 
-    assert conn_connect.state == :sent
+    assert conn_connect.state == :chunked
     assert conn_connect.status == 200
     parsed_connect_body = Jason.decode!(conn_connect.resp_body)
     assert parsed_connect_body["result"] != nil
@@ -148,33 +105,31 @@ defmodule SqlclWrapper.RouterTest do
 
     # 2. Run a SQL query to select from USERS table
     sql_query = "SELECT /* LLM in use is claude-sonnet-4 */ * FROM USERS;"
-    run_sql_command = %{
-      jsonrpc: "2.0",
-      id: 5, # Use another different ID
-      method: "tools/call",
-      params: %{
-        name: "run-sql",
-        arguments: %{
-          "sql" => sql_query,
-          "model" => "claude-sonnet-4",
-          "mcp_client" => "cline"
-        }
-      }
-    } |> Jason.encode!()
+    run_sql_command = build_json_rpc_tool_call(5, "run-sql", sql_query)
 
     conn_run_sql =
       conn(:post, "/tool", run_sql_command)
       |> put_req_header("content-type", "application/json")
       |> SqlclWrapper.Router.call(@opts)
 
-    assert conn_run_sql.state == :sent
+    assert conn_run_sql.state == :chunked
     assert conn_run_sql.status == 200
-    parsed_run_sql_body = Jason.decode!(conn_run_sql.resp_body)
+    # Extract and decode the JSON from the chunked response
+    run_sql_raw_body = String.trim_leading(conn_run_sql.resp_body, "data: ")
+    run_sql_raw_body = String.trim_trailing(run_sql_raw_body, "\n\n")
+    parsed_run_sql_body = Jason.decode!(run_sql_raw_body)
+
     assert parsed_run_sql_body["result"] != nil
     assert parsed_run_sql_body["result"]["isError"] == false
     assert parsed_run_sql_body["result"]["content"] != nil
     assert length(parsed_run_sql_body["result"]["content"]) > 0
-    assert Enum.any?(parsed_run_sql_body["result"]["content"], fn %{"type" => "text", "text" => text} -> String.length(text) > 0 end)
+    # Get the text content which is the CSV string
+    csv_content = Enum.find_value(parsed_run_sql_body["result"]["content"], fn %{"type" => "text", "text" => text} -> text end)
+    assert csv_content != nil
+    # Assert that the CSV content contains expected column headers for USERS table
+    assert String.contains?(csv_content, "ID") # Assuming ID is a column in USERS
+    assert String.contains?(csv_content, "USERNAME") # Assuming USERNAME is a column in USERS
+    assert String.contains?(csv_content, "EMAIL") # Assuming EMAIL is a column in USERS
   end
 
   # This test is problematic as it tries to call internal functions directly

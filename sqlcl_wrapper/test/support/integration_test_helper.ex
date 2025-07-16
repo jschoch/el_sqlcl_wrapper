@@ -103,7 +103,7 @@ defmodule SqlclWrapper.IntegrationTestHelper do
     end
   end
 
-  def build_json_rpc_tool_call(id, tool_name, the_sql,dbg \\ false) do
+  def build_json_rpc_tool_call(id, tool_name, the_sql, dbg \\ false) do
     map = %{
       jsonrpc: "2.0",
       id: id,
@@ -118,7 +118,26 @@ defmodule SqlclWrapper.IntegrationTestHelper do
       }
     }
     if dbg do
+      Logger.info("pretty rpc:\n#{inspect(map, pretty: true)}")
+    end
+    map |> Jason.encode!()
+  end
 
+  def build_json_rpc_connect_call(id, connection_name, dbg \\ false) do
+    map = %{
+      jsonrpc: "2.0",
+      id: id,
+      method: "tools/call",
+      params: %{
+        name: "connect",
+        arguments: %{
+          "connection_name" => connection_name,
+          "model" => "claude-sonnet-4",
+          "mcp_client" => "cline"
+        }
+      }
+    }
+    if dbg do
       Logger.info("pretty rpc:\n#{inspect(map, pretty: true)}")
     end
     map |> Jason.encode!()
