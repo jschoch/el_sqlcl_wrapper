@@ -12,15 +12,18 @@ defmodule SqlclWrapper.SqlclProcess do
   def init(opts) do
     parent = Keyword.get(opts, :parent)
     Logger.info("Starting SQLcl process...")
+    Logger.info("SQLcl executable path: #{@sqlcl_path}")
 
-    case Porcelain.spawn(@sqlcl_path, ["-mcp"], out: {:send, self()}, err: {:send, self()}) do
-      %Porcelain.Process{} = p ->
-        Logger.info("Porcelain.spawn successful, PID: #{inspect(p.pid)}")
-        send(parent, {:sqlcl_process_started, self()})
-        {:ok, %{porcelain_pid: p, parent: parent, request_map: %{}, server_ready_flag: false, stdout_buffer: ""}}
+    try do
+      # Redirect stderr to stdout so we can capture both streams
+      port = Port.open({:spawn, "#{@sqlcl_path} -mcp 2>&1"}, [:binary, :exit_status])
+      Logger.info("Port.open successful, Port: #{inspect(port)}")
+      send(parent, {:sqlcl_process_started, self()})
 
-      other -> # Catch any other return value from Porcelain.spawn
-        Logger.error("Porcelain.spawn failed: #{inspect(other)}. Check if '#{@sqlcl_path}' is a valid executable and accessible.")
+      {:ok, %{port: port, parent: parent, request_map: %{}, server_ready_flag: false, stdout_buffer: ""}}
+    catch
+      error ->
+        Logger.error("Port.open failed: #{inspect(error)}. Check if '#{@sqlcl_path}' is a valid executable and accessible.")
         send(parent, :sqlcl_process_failed_to_start)
         {:stop, :sqlcl_process_failed_to_start}
     end
@@ -38,19 +41,19 @@ defmodule SqlclWrapper.SqlclProcess do
       {:ok, %{"id" => id} = _parsed_command} ->
         new_request_map = Map.put(state.request_map, id, from)
         Logger.info("Attempting to send JSON-RPC command to SQLcl process: #{command}")
-        Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
+        Port.command(state.port, command <> "\n")
         Logger.info("JSON-RPC command sent to SQLcl process.")
         {:noreply, %{state | request_map: new_request_map}}
       {:ok, _parsed_command} -> # JSON but no ID, treat as raw command
         Logger.info("Attempting to send raw command (JSON, no ID) to SQLcl process: #{command}")
-        Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
+        Port.command(state.port, command <> "\n")
         Logger.info("Raw command (JSON, no ID) sent to SQLcl process.")
         GenServer.reply(from, :ok) # Acknowledge receipt for raw commands
         {:noreply, state}
       _ ->
         # It's a raw command (not JSON), no ID to track, just send it
         Logger.info("Attempting to send raw command to SQLcl process: #{command}")
-        Porcelain.Process.send_input(state.porcelain_pid, command <> "\n")
+        Port.command(state.port, command <> "\n")
         Logger.info("Raw command sent to SQLcl process.")
         GenServer.reply(from, :ok) # Acknowledge receipt for raw commands
         {:noreply, state}
@@ -60,40 +63,59 @@ defmodule SqlclWrapper.SqlclProcess do
   @impl true
   def handle_cast({:send_notification, notification}, state) do
     Logger.info("Attempting to send notification to SQLcl process: #{notification}")
-    Porcelain.Process.send_input(state.porcelain_pid, notification <> "\n")
+    Port.command(state.port, notification <> "\n")
     Logger.info("Notification sent to SQLcl process.")
     {:noreply, state}
   end
 
   @impl true
-  def handle_info({:exit_status, status}, state) do
+  def handle_info({port, {:exit_status, status}}, state) when port == state.port do
     Logger.info("SQLcl process exited with status: #{inspect(status)}")
     send(state.parent, {:sqlcl_output, {:exit, status}})
     {:stop, :normal, state}
   end
 
   @impl true
-  def handle_info({_pid, :data, :out, data}, state) do
-    Logger.info("[#{DateTime.utc_now()}] ***** SQLcl STDOUT: #{data}")
+  def handle_info({port, {:data, data}}, state) when port == state.port do
+    Logger.info("[#{DateTime.utc_now()}] ***** SQLcl OUTPUT: #{inspect(data)}")
     send(state.parent, {:sqlcl_output, {:stdout, data}})
     process_output(data, state)
   end
 
   @impl true
-  def handle_info({_pid, :data, :err, data}, state) do
-    Logger.error("[#{DateTime.utc_now()}] ***** SQLcl STDERR: #{data}")
-    send(state.parent, {:sqlcl_output, {:stderr, data}})
-    process_output(data, state)
+  def handle_info(msg, state) do
+    Logger.info("[#{DateTime.utc_now()}] ***** Received unexpected message: #{inspect(msg)}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    if state.port do
+      Port.close(state.port)
+    end
+    :ok
   end
 
   defp process_output(data, state) do
     # Accumulate stdout/stderr data into a single buffer for readiness check
     current_buffer = state.stdout_buffer <> IO.iodata_to_binary(data)
-    Logger.debug("[#{DateTime.utc_now()}] Current combined buffer: \"#{current_buffer}\"")
+    Logger.info("[#{DateTime.utc_now()}] Current combined buffer: \"#{current_buffer}\"")
+    Logger.info("[#{DateTime.utc_now()}] Buffer length: #{String.length(current_buffer)}")
 
-    # Check for server ready message in the accumulated buffer
-    is_ready = String.contains?(current_buffer, "----------------------------------------")
-    Logger.debug("[#{DateTime.utc_now()}] String.contains?(\"----------------------------------------\"): #{is_ready}")
+    # Check for server ready message in the accumulated buffer using multiple patterns
+    patterns_to_check = [
+      "----------------------------------------",
+      "MCP Server started successfully",
+      "Press Ctrl+C to stop the server"
+    ]
+
+    is_ready = Enum.any?(patterns_to_check, fn pattern ->
+      contains_pattern = String.contains?(current_buffer, pattern)
+      Logger.info("[#{DateTime.utc_now()}] Checking pattern \"#{pattern}\": #{contains_pattern}")
+      contains_pattern
+    end)
+
+    Logger.info("[#{DateTime.utc_now()}] Overall server ready check: #{is_ready}")
 
     new_state = if not state.server_ready_flag and is_ready do
       Logger.info("[#{DateTime.utc_now()}] SQLcl server reported ready. Setting server_ready_flag to true.")

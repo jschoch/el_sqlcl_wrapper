@@ -1,20 +1,33 @@
 defmodule SqlclWrapper.Router do
   use Plug.Router
-  require Logger
 
-  plug Plug.Parsers,
-    parsers: [:json],
-    pass: ["application/json", "text/plain"],
-    json_decoder: Jason
-
-  plug Plug.Logger, log: :info
+  plug Plug.Logger
   plug :match
   plug :dispatch
 
-  # Forward all MCP requests to the Hermes.Server
-  #forward "/mcp", Hermes.Server.Transport.StreamableHTTP.Plug, server: SqlclWrapper.MCPServer
+  post "/mcp" do
+    handle_mcp_request(conn)
+  end
+
+  get "/mcp" do
+    handle_mcp_request(conn)
+  end
 
   match _ do
-    send_resp(conn, 404, "Not Found")
+    send_resp(conn, 404, "not found")
+  end
+
+  defp handle_mcp_request(conn) do
+    try do
+      # Try to load the module at runtime
+      plug_module = Hermes.Server.Transport.StreamableHTTP.Plug
+      opts = plug_module.init([server: SqlclWrapper.MCPServer])
+      plug_module.call(conn, opts)
+    rescue
+      UndefinedFunctionError ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(503, Jason.encode!(%{error: "MCP Transport not available"}))
+    end
   end
 end

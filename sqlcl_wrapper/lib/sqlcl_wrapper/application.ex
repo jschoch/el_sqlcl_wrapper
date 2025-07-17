@@ -22,9 +22,10 @@ defmodule SqlclWrapper.Application do
     # Wait for SqlclProcess to signal it's ready
     wait_for_sqlcl_process_and_server_ready(3000) # 3 second timeout
 
-    # Once SqlclProcess is ready, start MCPServer and Plug.Cowboy
-    Supervisor.start_child(pid, {SqlclWrapper.MCPServer, transport: {:streamable_http, port: 4000}})
-    Supervisor.start_child(pid, Plug.Cowboy.child_spec(scheme: :http, plug: {Hermes.Server.Transport.StreamableHTTP.Plug, server: SqlclWrapper.MCPServer}, options: [port: 4000]))
+    # Once SqlclProcess is ready, start MCPServer (skip HTTP for now)
+    Supervisor.start_child(pid, {SqlclWrapper.MCPServer, transport: :streamable_http})
+    # TODO: Fix HTTP transport compilation issue
+    # Supervisor.start_child(pid, {Bandit, plug: SqlclWrapper.Router})
 
     {:ok, pid}
   end
@@ -50,16 +51,17 @@ defmodule SqlclWrapper.Application do
   end
 
   defp wait_for_sqlcl_server_ready(remaining_timeout) when remaining_timeout > 0 do
-    Logger.info("Polling SqlclProcess for server readiness...")
+    Logger.info("Polling SqlclProcess for server readiness... (remaining timeout: #{remaining_timeout}ms)")
     case GenServer.call(SqlclWrapper.SqlclProcess, :is_server_ready, 1000) do # 1 second timeout for the call
       true ->
         Logger.info("SQLcl server is ready.")
         :ok
       false ->
+        Logger.info("SQLcl server not ready yet, sleeping for 100ms and retrying...")
         Process.sleep(100) # Wait a bit before polling again
         wait_for_sqlcl_server_ready(remaining_timeout - 100)
-      _ -> # In case of an error or unexpected response from GenServer.call
-        Logger.error("Unexpected response from SqlclProcess when checking readiness.")
+      unexpected_response -> # In case of an error or unexpected response from GenServer.call
+        Logger.error("Unexpected response from SqlclProcess when checking readiness: #{inspect(unexpected_response)}")
         exit(:sqlcl_readiness_check_error)
     end
   rescue

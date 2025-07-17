@@ -26,9 +26,8 @@ defmodule SqlclWrapper.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:plug, "~> 1.15"},
-      {:plug_cowboy, "~> 2.7"},
-      {:porcelain, "~> 2.0"},
+      {:plug, "~> 1.18"},
+      {:bandit, "~> 1.6"},
       {:jason, "~> 1.2"},
       {:hermes_mcp, "~> 0.12.1"},
       {:httpoison, "~> 2.1", only: [:dev, :test]},
