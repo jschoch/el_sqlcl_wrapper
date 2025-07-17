@@ -9,3 +9,6 @@ config :logger, :console,
   format: "[$level] $message\n",
   metadata: [:file, :line],
   level: :debug
+
+# Import environment-specific configuration
+import_config "#{Mix.env()}.exs"
