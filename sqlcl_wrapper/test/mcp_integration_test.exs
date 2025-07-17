@@ -32,7 +32,6 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     %{mcp_server: mcp_server}
   end
 
-  describe "MCP Protocol Compliance" do
     test "MCP server handles initialization sequence correctly", %{mcp_server: mcp_server} do
       # Step 1: Initialize the server
       init_message = %{
@@ -109,7 +108,6 @@ defmodule SqlclWrapper.MCPIntegrationTest do
 
       Logger.info("All expected MCP tools are available: #{inspect(tool_names)}")
     end
-  end
 
   describe "Connection Management" do
     test "can list available database connections", %{mcp_server: mcp_server} do
