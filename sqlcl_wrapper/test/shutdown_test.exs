@@ -9,7 +9,14 @@ defmodule SqlclWrapper.ShutdownTest do
 
   setup do
     Logger.info("Starting SQLcl process for shutdown test...")
-    {:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
+    #{:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
+    pid = case SqlclWrapper.SqlclProcess.start_link(parent: self()) do
+      {:ok, pid} -> Logger.info("started up ok dood")
+        pid
+       {:error, {:already_started, pid}} ->
+          Logger.info("already started")
+          pid
+       end
     wait_for_sqlcl_startup() # Use the enhanced helper
     Logger.info("SQLcl process started for shutdown test.")
 
@@ -86,7 +93,7 @@ defmodule SqlclWrapper.ShutdownTest do
       rescue
         error ->
           Logger.error("Error testing new process: #{inspect(error)}")
-        ensure
+        after
           # Cleanup
           if Process.alive?(new_pid) do
             Process.exit(new_pid, :kill)

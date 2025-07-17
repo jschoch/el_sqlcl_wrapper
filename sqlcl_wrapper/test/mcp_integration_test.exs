@@ -9,9 +9,6 @@ defmodule SqlclWrapper.MCPIntegrationTest do
   """
 
   setup_all do
-    # Import test configuration
-    import_config("config/test_config.exs")
-
     # Start the application with all components
     {:ok, _apps} = Application.ensure_all_started(:sqlcl_wrapper)
 
