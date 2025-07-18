@@ -10,7 +10,11 @@ defmodule SqlclWrapper.PorcelainTest do
   setup_all do
     # Start the SqlclProcess manually for the test suite
     Logger.info("Starting SQLcl process for test suite setup...")
-    {:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
+    #{:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
+    pid = case SqlclWrapper.SqlclProcess.start_link(parent: self()) do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
+    end
     wait_for_sqlcl_startup(pid) # Use the helper's wait_for_sqlcl_startup
     Logger.info("SQLcl process ready for test suite setup. Giving it a moment...")
     Process.sleep(1000) # Give SQLcl a moment to fully initialize after startup message
@@ -29,22 +33,22 @@ defmodule SqlclWrapper.PorcelainTest do
     pid = Process.whereis(SqlclWrapper.SqlclProcess)
     assert pid != nil
 
-    SqlclWrapper.SqlclProcess.subscribe(self())
+    #SqlclWrapper.SqlclProcess.subscribe(self())
 
     # 1. Send initialize request with the correct protocol version
     init_req = ~s({"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "my-stdio-client", "version": "1.0.0"}}, "id": 1})
-    {:ok, init_resp} = SqlclWrapper.SqlclProcess.send_command(init_req, 10_000) # Increased timeout
+    {:ok, init_resp} = SqlclWrapper.SqlclProcess.send_command(init_req, 1_000)
     Logger.info("Received initialize response: #{inspect(init_resp)}")
     assert init_resp["id"] == 1
     assert init_resp["result"]
 
     # 3. Send initialized notification (this is a notification, not a request, so no reply expected)
     initialized_notif = ~s({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
-    SqlclWrapper.SqlclProcess.send_command(initialized_notif, 10_000) # Increased timeout
+    SqlclWrapper.SqlclProcess.send_command(initialized_notif, 1_000)
 
     # 4. Send tools/call request
     tool_call_req = ~s({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list-connections", "arguments": {}}})
-    {:ok, tool_call_resp} = SqlclWrapper.SqlclProcess.send_command(tool_call_req, 10_000) # Increased timeout
+    {:ok, tool_call_resp} = SqlclWrapper.SqlclProcess.send_command(tool_call_req, 1_000)
 
     # 5. Receive tools/call response and assert its content
     Logger.info("Received tool call response: #{inspect(tool_call_resp)}")

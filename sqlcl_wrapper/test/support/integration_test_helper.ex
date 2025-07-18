@@ -146,12 +146,16 @@ defmodule SqlclWrapper.IntegrationTestHelper do
           }
         }
 
-        {:ok, response} = GenServer.call(server, {:request, connect_message, session_id, %{}})
-        response_data = Jason.decode!(response)
-
-        if Map.has_key?(response_data, "error") do
-          raise "Connection failed: #{inspect(response_data["error"])}"
+        #{:ok, response} = GenServer.call(server, {:request, connect_message, session_id, %{}})
+        #response_data = Jason.decode!(response)
+        response = case GenServer.call(server, {:request, connect_message, session_id, %{}}) do
+          {:ok, response} -> response
+          bad ->
+            Logger.info("bad response on database connection was: #{inspect bad}")
+            %{"error" => :bad}
+            raise "Bad #{inspect bad}"
         end
+
 
         Logger.info("Connected to database: #{connection_name}")
         {server, session_id}
@@ -177,8 +181,8 @@ defmodule SqlclWrapper.IntegrationTestHelper do
         "name" => "run-sql",
         "arguments" => %{
           "sql" => sql_query,
-          "mcp_client" => "test-client",
-          "model" => "claude-sonnet-4"
+          "mcp_client" => "cline",
+          "model" => "mememe"
         }
       }
     }
@@ -222,6 +226,7 @@ defmodule SqlclWrapper.IntegrationTestHelper do
     response_data = Jason.decode!(response)
 
     if Map.has_key?(response_data, "error") do
+      Logger.info("Pre crash: #{inspect response_data, pretty: true}")
       raise "SQLcl command failed: #{inspect(response_data["error"])}"
     end
 

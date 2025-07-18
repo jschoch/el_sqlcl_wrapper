@@ -30,7 +30,7 @@ defmodule SqlclWrapper.Application do
     {:ok, pid}
   end
 
-  defp wait_for_sqlcl_process_and_server_ready(timeout \\ 3000) do
+  defp wait_for_sqlcl_process_and_server_ready(timeout) do
     start_time = System.monotonic_time(:millisecond)
     Logger.info("Waiting for SQLcl process to start and signal server ready...")
 

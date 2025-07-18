@@ -1,5 +1,7 @@
 defmodule SqlclWrapper.Router do
   use Plug.Router
+  # this doesn't work
+  #require Hermes.Server.Transport.StreamableHTTP.Plug
 
   plug Plug.Logger
   plug :match

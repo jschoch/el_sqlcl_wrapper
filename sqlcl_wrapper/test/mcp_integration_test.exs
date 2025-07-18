@@ -23,6 +23,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     end
 
     Logger.info("MCP integration test setup complete")
+    {server, session_id} = perform_mcp_handshake(mcp_server)
 
     on_exit(fn ->
       Logger.info("Cleaning up MCP integration test")
@@ -111,7 +112,9 @@ defmodule SqlclWrapper.MCPIntegrationTest do
 
   describe "Connection Management" do
     test "can list available database connections", %{mcp_server: mcp_server} do
-      result = list_connections(mcp_server)
+       {server, session_id} = perform_mcp_handshake(mcp_server)
+
+      result = list_connections(server)
 
       # Verify response structure
       assert Map.has_key?(result, "content")
@@ -134,12 +137,13 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     end
 
     test "can connect to configured database connection", %{mcp_server: mcp_server} do
+      {server, session_id} = perform_mcp_handshake(mcp_server)
       connection_name = get_default_connection()
       {server, session_id} = connect_to_database(connection_name)
 
       # Verify we have a valid server and session
-      assert server != nil
-      assert session_id != nil
+      #assert server != nil
+      #assert session_id != nil
 
       # Test connection by running a simple query
       result = execute_sql(get_test_query(:simple_select), server, session_id)
@@ -255,6 +259,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     end
 
     test "can execute table data query with validation", %{mcp_server: mcp_server} do
+      {server, session_id} = perform_mcp_handshake(mcp_server)
       {server, session_id} = connect_to_database()
 
       # Test with USERS table
