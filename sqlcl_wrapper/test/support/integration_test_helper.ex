@@ -103,6 +103,7 @@ defmodule SqlclWrapper.IntegrationTestHelper do
 
     {:ok, init_response} = GenServer.call(mcp_server, {:request, init_message, session_id, %{}})
     init_data = Jason.decode!(init_response)
+    Logger.info(" init data: #{inspect init_data}")
 
     unless init_data["jsonrpc"] == "2.0" and Map.has_key?(init_data, "result") do
       raise "MCP initialization failed: #{inspect(init_data)}"

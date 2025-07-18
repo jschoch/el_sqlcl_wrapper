@@ -12,7 +12,7 @@ defmodule SqlclWrapper.Application do
     Logger.info("start called bigboy")
     children = [
       Hermes.Server.Registry,
-      {SqlclWrapper.SqlclProcess, parent: self()}
+      {SqlclWrapper.SqlclProcess, transport: :streamable_http, parent: self()}
     ]
 
     # Start the supervisor

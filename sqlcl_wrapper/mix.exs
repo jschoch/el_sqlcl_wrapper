@@ -29,7 +29,7 @@ defmodule SqlclWrapper.MixProject do
       {:plug, "~> 1.18"},
       {:bandit, "~> 1.6"},
       {:jason, "~> 1.2"},
-      {:hermes_mcp, "~> 0.12.1"},
+      {:hermes_mcp, "~> 0.13"},
       {:httpoison, "~> 2.1", only: [:dev, :test]},
       {:mox, "~> 1.0", only: :test}
     ]

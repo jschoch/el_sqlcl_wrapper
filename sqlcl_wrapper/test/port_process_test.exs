@@ -16,8 +16,6 @@ defmodule SqlclWrapper.PorcelainTest do
       {:error, {:already_started, pid}} -> pid
     end
     wait_for_sqlcl_startup(pid) # Use the helper's wait_for_sqlcl_startup
-    Logger.info("SQLcl process ready for test suite setup. Giving it a moment...")
-    Process.sleep(1000) # Give SQLcl a moment to fully initialize after startup message
     Logger.info("SQLcl process should be ready now.")
 
     ExUnit.Callbacks.on_exit fn ->

@@ -7,11 +7,19 @@ defmodule SqlclWrapper.Router do
   plug :match
   plug :dispatch
 
+  alias Hermes.Server.Transport.StreamableHTTP
+
+  forward "/mcp2", to: StreamableHTTP.Plug, init_opts: [server: SqlclWrapper.MCPServer]
+
   post "/mcp" do
     handle_mcp_request(conn)
   end
 
   get "/mcp" do
+    handle_mcp_request(conn)
+  end
+
+  post "/tool" do
     handle_mcp_request(conn)
   end
 
