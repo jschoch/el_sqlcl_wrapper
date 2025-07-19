@@ -114,7 +114,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     test "can list available database connections", %{mcp_server: mcp_server} do
        {server, session_id} = perform_mcp_handshake(mcp_server)
 
-      result = list_connections(server)
+      result = list_connections(server,session_id)
 
       # Verify response structure
       assert Map.has_key?(result, "content")

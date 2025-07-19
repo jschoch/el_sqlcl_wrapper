@@ -1,5 +1,5 @@
-defmodule SqlclWrapper.PorcelainTest do
-  use ExUnit.Case
+defmodule SqlclWrapper.PortProcessTest do
+  use ExUnit.Case, async: false
   import SqlclWrapper.IntegrationTestHelper # Import the helper
   require Logger
 
@@ -26,6 +26,7 @@ defmodule SqlclWrapper.PorcelainTest do
     end
     :ok
   end
+
 
   test "performs full handshake and calls list-connections tool" do
     pid = Process.whereis(SqlclWrapper.SqlclProcess)
@@ -58,6 +59,7 @@ defmodule SqlclWrapper.PorcelainTest do
     # Assert that there is 1 connection as per the provided working test output
     assert length(tool_call_resp["result"]["content"]) == 1
     assert tool_call_resp["result"]["content"] == [%{"type" => "text", "text" => "theconn,test123"}]
+    assert false, "not done yet"
   end
 
 end

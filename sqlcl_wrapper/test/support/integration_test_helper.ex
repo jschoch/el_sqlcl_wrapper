@@ -234,20 +234,11 @@ defmodule SqlclWrapper.IntegrationTestHelper do
     response_data["result"]
   end
 
-  @doc """
-  Lists available database connections.
+   @doc """
+  Lists available database connections through the MCP server.
   """
-  def list_connections(mcp_server \\ nil, session_id \\ nil) do
-    {server, session} = case {mcp_server, session_id} do
-      {nil, nil} ->
-        case get_mcp_server() do
-          nil -> raise "MCP server not available"
-          srv -> perform_mcp_handshake(srv)
-        end
-      {srv, sid} -> {srv, sid}
-    end
-
-    list_message = %{
+  def list_connections(mcp_server, session_id) do
+    list_connections_message = %{
       "jsonrpc" => "2.0",
       "method" => "tools/call",
       "id" => "list-connections-#{System.unique_integer([:monotonic])}",
@@ -260,7 +251,7 @@ defmodule SqlclWrapper.IntegrationTestHelper do
       }
     }
 
-    {:ok, response} = GenServer.call(server, {:request, list_message, session, %{}})
+    {:ok, response} = GenServer.call(mcp_server, {:request, list_connections_message, session_id, %{}})
     response_data = Jason.decode!(response)
 
     if Map.has_key?(response_data, "error") do

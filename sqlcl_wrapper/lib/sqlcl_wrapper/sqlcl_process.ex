@@ -77,7 +77,7 @@ defmodule SqlclWrapper.SqlclProcess do
 
   @impl true
   def handle_info({port, {:data, data}}, state) when port == state.port do
-    Logger.info("[#{DateTime.utc_now()}] ***** SQLcl OUTPUT: #{inspect(data)}")
+    Logger.debug("[#{DateTime.utc_now()}] \t#{inspect(data)}")
     send(state.parent, {:sqlcl_output, {:stdout, data}})
     process_output(data, state)
   end
@@ -99,8 +99,8 @@ defmodule SqlclWrapper.SqlclProcess do
   defp process_output(data, state) do
     # Accumulate stdout/stderr data into a single buffer for readiness check
     current_buffer = state.stdout_buffer <> IO.iodata_to_binary(data)
-    Logger.info("[#{DateTime.utc_now()}] Current combined buffer: \"#{current_buffer}\"")
-    Logger.info("[#{DateTime.utc_now()}] Buffer length: #{String.length(current_buffer)}")
+    #Logger.info("[#{DateTime.utc_now()}] Current combined buffer: \"#{current_buffer}\"")
+    #Logger.info("[#{DateTime.utc_now()}] Buffer length: #{String.length(current_buffer)}")
 
     # Check for server ready message in the accumulated buffer using multiple patterns
     patterns_to_check = [
@@ -111,7 +111,7 @@ defmodule SqlclWrapper.SqlclProcess do
 
     is_ready = Enum.any?(patterns_to_check, fn pattern ->
       contains_pattern = String.contains?(current_buffer, pattern)
-      Logger.info("[#{DateTime.utc_now()}] Checking pattern \"#{pattern}\": #{contains_pattern}")
+      #Logger.info("[#{DateTime.utc_now()}] Checking pattern \"#{pattern}\": #{contains_pattern}")
       contains_pattern
     end)
 

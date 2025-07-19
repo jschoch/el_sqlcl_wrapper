@@ -15,9 +15,7 @@ defmodule SqlclWrapper.MCPServer do
     |> register_tool("list-connections",
         description: "List all available oracle named/saved connections in the connections storage",
         input_schema: %{
-          filter: {:optional, :string, description: "Filter connections by name"},
-          mcp_client: {:optional, :string, description: "The name of the MCP client"},
-          model: {:optional, :string, description: "The name and version of the LLM in use"}
+          filter: {:optional, :string}
         })
     |> register_tool("connect",
         description: "Provides an interface to connect to a specified database. If a database connection is already active, prompt the user for confirmation before switching to the new connection. If no connection exists, list the available schemas for selection.",
