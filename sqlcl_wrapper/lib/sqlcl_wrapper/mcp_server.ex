@@ -61,7 +61,7 @@ defmodule SqlclWrapper.MCPServer do
         "arguments" => params
       }
     }
-    case SqlclWrapper.SqlclProcess.send_command(Jason.encode!(json_rpc_request)) do
+    case SqlclWrapper.SqlclProcess.send_command(Jason.encode!(json_rpc_request),5000) do
       {:ok, %{"result" => result}} ->
         {:reply, result, frame}
       {:error, reason} ->
@@ -69,6 +69,9 @@ defmodule SqlclWrapper.MCPServer do
         {:reply, %{"error" => "Failed to list connections: #{inspect(reason)}"}, frame}
       :ok -> # For raw commands that return :ok
         {:reply, %{"content" => [%{type: "text", text: "Command sent successfully."}]}, frame}
+      doh ->
+        Logger.error("DOH! #{inspect doh}")
+        {:error}
     end
   end
 

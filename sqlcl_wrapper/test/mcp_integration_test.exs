@@ -108,12 +108,21 @@ defmodule SqlclWrapper.MCPIntegrationTest do
       end
 
       Logger.info("All expected MCP tools are available: #{inspect(tool_names)}")
+      assert false, "i want to see the output"
     end
 
   describe "Connection Management" do
-    test "can list available database connections", %{mcp_server: mcp_server} do
-       {server, session_id} = perform_mcp_handshake(mcp_server)
+    test "why so fucky", %{mcp_server: mcp_server} do
+      {server, session_id} = perform_mcp_handshake(mcp_server)
+       tool_call_req = ~s({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list-connections", "arguments": {}}})
+      {res, tool_call_resp} = SqlclWrapper.SqlclProcess.send_command(tool_call_req, 3_000)
+      assert :ok = res
 
+    end
+    test "can list available database connections", %{mcp_server: mcp_server} do
+      {server, session_id} = perform_mcp_handshake(mcp_server)
+      initialized_notif = ~s({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+      SqlclWrapper.SqlclProcess.send_command(initialized_notif, 1_000)
       result = list_connections(server,session_id)
 
       # Verify response structure
