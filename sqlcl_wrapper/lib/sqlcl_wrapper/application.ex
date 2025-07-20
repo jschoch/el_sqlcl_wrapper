@@ -59,7 +59,7 @@ defmodule SqlclWrapper.Application do
       false ->
         Logger.info("SQLcl server not ready yet, sleeping for 100ms and retrying...")
         Process.sleep(100) # Wait a bit before polling again
-        wait_for_sqlcl_server_ready(remaining_timeout - 100)
+        wait_for_sqlcl_server_ready(remaining_timeout - 200)
       unexpected_response -> # In case of an error or unexpected response from GenServer.call
         Logger.error("Unexpected response from SqlclProcess when checking readiness: #{inspect(unexpected_response)}")
         exit(:sqlcl_readiness_check_error)

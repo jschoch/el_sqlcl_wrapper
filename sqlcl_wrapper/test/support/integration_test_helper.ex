@@ -20,11 +20,6 @@ defmodule SqlclWrapper.IntegrationTestHelper do
     # Wait for SQLcl process to be ready
     wait_for_sqlcl_startup()
 
-    # Perform MCP initialization if needed
-    if opts[:initialize_mcp] do
-      initialize_mcp_server()
-    end
-
     Logger.info("Integration test environment ready")
     :ok
   end
@@ -68,25 +63,12 @@ defmodule SqlclWrapper.IntegrationTestHelper do
   end
 
   @doc """
-  Initializes MCP server with proper handshake sequence.
-  """
-  def initialize_mcp_server() do
-    case Hermes.Server.Registry.whereis_server(MCPServer) do
-      nil ->
-        Logger.error("MCP server not found in registry")
-        raise "MCP server not available"
-      mcp_server ->
-        perform_mcp_handshake(mcp_server)
-    end
-  end
-
-  @doc """
-  Performs the complete MCP handshake sequence.
+  Performs the complete MCP handshake sequence for a test client.
   """
   def perform_mcp_handshake(mcp_server) do
     session_id = "test-session-#{System.unique_integer([:monotonic])}"
 
-    # Step 1: Initialize
+    # Step 1: Initialize the session
     init_message = %{
       "jsonrpc" => "2.0",
       "method" => "initialize",
@@ -103,13 +85,12 @@ defmodule SqlclWrapper.IntegrationTestHelper do
 
     {:ok, init_response} = GenServer.call(mcp_server, {:request, init_message, session_id, %{}})
     init_data = Jason.decode!(init_response)
-    Logger.info(" init data: #{inspect init_data}")
 
     unless init_data["jsonrpc"] == "2.0" and Map.has_key?(init_data, "result") do
       raise "MCP initialization failed: #{inspect(init_data)}"
     end
 
-    # Step 2: Send initialized notification
+    # Step 2: Send initialized notification for the session
     initialized_notification = %{
       "jsonrpc" => "2.0",
       "method" => "notifications/initialized",
@@ -118,7 +99,7 @@ defmodule SqlclWrapper.IntegrationTestHelper do
 
     GenServer.cast(mcp_server, {:notification, initialized_notification, session_id, %{}})
 
-    Logger.info("MCP handshake completed successfully")
+    Logger.info("Test client MCP handshake completed successfully for session: #{session_id}")
     {mcp_server, session_id}
   end
 
@@ -149,7 +130,7 @@ defmodule SqlclWrapper.IntegrationTestHelper do
 
         #{:ok, response} = GenServer.call(server, {:request, connect_message, session_id, %{}})
         #response_data = Jason.decode!(response)
-        response = case GenServer.call(server, {:request, connect_message, session_id, %{}}) do
+        _response = case GenServer.call(server, {:request, connect_message, session_id, %{}}) do
           {:ok, response} -> response
           bad ->
             Logger.info("bad response on database connection was: #{inspect bad}")

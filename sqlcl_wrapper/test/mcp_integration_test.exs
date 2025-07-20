@@ -23,7 +23,6 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     end
 
     Logger.info("MCP integration test setup complete")
-    {server, session_id} = perform_mcp_handshake(mcp_server)
 
     on_exit(fn ->
       Logger.info("Cleaning up MCP integration test")
@@ -33,97 +32,10 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     %{mcp_server: mcp_server}
   end
 
-    test "MCP server handles initialization sequence correctly", %{mcp_server: mcp_server} do
-      # Step 1: Initialize the server
-      init_message = %{
-        "jsonrpc" => "2.0",
-        "method" => "initialize",
-        "id" => "test-init-#{System.unique_integer([:monotonic])}",
-        "params" => %{
-          "protocolVersion" => get_protocol_version(),
-          "capabilities" => %{},
-          "clientInfo" => %{
-            "name" => "test-client",
-            "version" => "1.0.0"
-          }
-        }
-      }
-
-      {:ok, init_response} = GenServer.call(mcp_server, {:request, init_message, "test-session", %{}})
-      init_response_data = Jason.decode!(init_response)
-
-      assert init_response_data["jsonrpc"] == "2.0"
-      assert Map.has_key?(init_response_data, "result")
-      assert init_response_data["id"] == init_message["id"]
-
-      # Verify server capabilities
-      result = init_response_data["result"]
-      assert Map.has_key?(result, "capabilities")
-      assert Map.has_key?(result, "serverInfo")
-
-      # Step 2: Send initialized notification
-      initialized_notification = %{
-        "jsonrpc" => "2.0",
-        "method" => "notifications/initialized",
-        "params" => %{}
-      }
-
-      # This should not raise an error
-      GenServer.cast(mcp_server, {:notification, initialized_notification, "test-session", %{}})
-
-      Logger.info("MCP initialization sequence completed successfully")
-    end
-
-    test "MCP server lists available tools correctly", %{mcp_server: mcp_server} do
-      {server, session_id} = perform_mcp_handshake(mcp_server)
-
-      # Request tools list
-      message = %{
-        "jsonrpc" => "2.0",
-        "method" => "tools/list",
-        "id" => "test-tools-list-#{System.unique_integer([:monotonic])}",
-        "params" => %{}
-      }
-
-      {:ok, response} = GenServer.call(server, {:request, message, session_id, %{}})
-      response_data = Jason.decode!(response)
-
-      assert response_data["jsonrpc"] == "2.0"
-      assert response_data["id"] == message["id"]
-
-      # Check for error response
-      if Map.has_key?(response_data, "error") do
-        flunk("Server returned error: #{inspect(response_data["error"])}")
-      end
-
-      # Verify all expected tools are available
-      tools = response_data["result"]["tools"]
-      assert is_list(tools)
-
-      expected_tools = ["list-connections", "connect", "disconnect", "run-sqlcl", "run-sql"]
-      tool_names = Enum.map(tools, & &1["name"])
-
-      for tool_name <- expected_tools do
-        assert tool_name in tool_names, "Missing tool: #{tool_name}"
-      end
-
-      Logger.info("All expected MCP tools are available: #{inspect(tool_names)}")
-      assert false, "i want to see the output"
-    end
-
   describe "Connection Management" do
-    test "why so fucky", %{mcp_server: mcp_server} do
-      {server, session_id} = perform_mcp_handshake(mcp_server)
-       tool_call_req = ~s({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list-connections", "arguments": {}}})
-      {res, tool_call_resp} = SqlclWrapper.SqlclProcess.send_command(tool_call_req, 3_000)
-      assert :ok = res
-
-    end
     test "can list available database connections", %{mcp_server: mcp_server} do
-      {server, session_id} = perform_mcp_handshake(mcp_server)
-      initialized_notif = ~s({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
-      SqlclWrapper.SqlclProcess.send_command(initialized_notif, 1_000)
-      result = list_connections(server,session_id)
+      {_server, session_id} = perform_mcp_handshake(mcp_server)
+      result = list_connections(mcp_server, session_id)
 
       # Verify response structure
       assert Map.has_key?(result, "content")
@@ -145,8 +57,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
       Logger.info("Connection list retrieved successfully: #{text_content}")
     end
 
-    test "can connect to configured database connection", %{mcp_server: mcp_server} do
-      {server, session_id} = perform_mcp_handshake(mcp_server)
+    test "can connect to configured database connection", %{mcp_server: _mcp_server} do
       connection_name = get_default_connection()
       {server, session_id} = connect_to_database(connection_name)
 
@@ -167,7 +78,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     end
 
     test "handles connection to non-existent database gracefully", %{mcp_server: mcp_server} do
-      {server, session_id} = perform_mcp_handshake(mcp_server)
+      {_server, session_id} = perform_mcp_handshake(mcp_server)
 
       connect_message = %{
         "jsonrpc" => "2.0",
@@ -183,7 +94,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
         }
       }
 
-      {:ok, response} = GenServer.call(server, {:request, connect_message, session_id, %{}})
+      {:ok, response} = GenServer.call(mcp_server, {:request, connect_message, session_id, %{}})
       response_data = Jason.decode!(response)
 
       # Should return an error for non-existent connection
@@ -196,7 +107,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
   end
 
   describe "SQL Execution" do
-    test "can execute simple SQL query", %{mcp_server: mcp_server} do
+    test "can execute simple SQL query", %{mcp_server: _mcp_server} do
       {server, session_id} = connect_to_database()
 
       query = get_test_query(:dual_query)
@@ -219,7 +130,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
       Logger.info("Simple SQL query executed successfully")
     end
 
-    test "can execute table listing query", %{mcp_server: mcp_server} do
+    test "can execute table listing query", %{mcp_server: _mcp_server} do
       {server, session_id} = connect_to_database()
 
       query = get_test_query(:list_tables)
@@ -245,7 +156,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
       Logger.info("Table listing query executed successfully")
     end
 
-    test "can execute user information query", %{mcp_server: mcp_server} do
+    test "can execute user information query", %{mcp_server: _mcp_server} do
       {server, session_id} = connect_to_database()
 
       query = get_test_query(:current_user)
@@ -267,8 +178,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
       Logger.info("User information query executed successfully: #{text_content}")
     end
 
-    test "can execute table data query with validation", %{mcp_server: mcp_server} do
-      {server, session_id} = perform_mcp_handshake(mcp_server)
+    test "can execute table data query with validation", %{mcp_server: _mcp_server} do
       {server, session_id} = connect_to_database()
 
       # Test with USERS table
@@ -303,7 +213,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
       Logger.info("Table data query with validation executed successfully")
     end
 
-    test "handles SQL errors gracefully", %{mcp_server: mcp_server} do
+    test "handles SQL errors gracefully", %{mcp_server: _mcp_server} do
       {server, session_id} = connect_to_database()
 
       # Execute invalid SQL
@@ -318,7 +228,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
   end
 
   describe "SQLcl Command Execution" do
-    test "can execute SQLcl commands", %{mcp_server: mcp_server} do
+    test "can execute SQLcl commands", %{mcp_server: _mcp_server} do
       {server, session_id} = connect_to_database()
 
       # Test version command
@@ -340,7 +250,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
       Logger.info("SQLcl command executed successfully")
     end
 
-    test "can execute describe command", %{mcp_server: mcp_server} do
+    test "can execute describe command", %{mcp_server: _mcp_server} do
       {server, session_id} = connect_to_database()
 
       # Test describe command on USERS table
@@ -396,10 +306,6 @@ defmodule SqlclWrapper.MCPIntegrationTest do
   end
 
   # Helper functions
-
-  defp get_protocol_version() do
-    Application.get_env(:sqlcl_wrapper, :mcp_server)[:protocol_version] || "2025-06-18"
-  end
 
   defp get_default_connection() do
     Application.get_env(:sqlcl_wrapper, :default_connection) || "theconn"

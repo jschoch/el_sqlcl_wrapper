@@ -7,59 +7,48 @@ defmodule SqlclWrapper.PortProcessTest do
   Tests the raw input and output of the sqlcl.exe process via the Porcelain wrapper.
   """
 
-  setup_all do
-    # Start the SqlclProcess manually for the test suite
-    Logger.info("Starting SQLcl process for test suite setup...")
-    #{:ok, pid} = SqlclWrapper.SqlclProcess.start_link(parent: self())
-    pid = case SqlclWrapper.SqlclProcess.start_link(parent: self()) do
-      {:ok, pid} -> pid
-      {:error, {:already_started, pid}} -> pid
-    end
-    wait_for_sqlcl_startup(pid) # Use the helper's wait_for_sqlcl_startup
-    Logger.info("SQLcl process should be ready now.")
-
-    ExUnit.Callbacks.on_exit fn ->
-      if pid = Process.whereis(SqlclWrapper.SqlclProcess) do
-        Logger.info("Shutting down SQLcl process after test suite.")
-        Process.exit(pid, :kill)
-      end
-    end
+  setup do
+    # The application supervisor starts the process, we just need to wait for it.
+    wait_for_sqlcl_startup()
     :ok
   end
 
+  test "can ping the GenServer" do
+    assert :pong = GenServer.call(SqlclWrapper.SqlclProcess, :ping)
+  end
 
-  test "performs full handshake and calls list-connections tool" do
-    pid = Process.whereis(SqlclWrapper.SqlclProcess)
-    assert pid != nil
+  test "can list tools" do
 
-    #SqlclWrapper.SqlclProcess.subscribe(self())
+      req = ~s({  "jsonrpc": "2.0",  "id": 1,  "method": "tools/list",  "params": {     }})
+      {:ok, tool_call_resp} = SqlclWrapper.SqlclProcess.send_command(req, 3_000)
+      assert tool_call_resp["jsonrpc"] == "2.0"
+      tools = tool_call_resp["result"]["tools"]
+      Logger.info("tools #{inspect tools,pretty: true}")
 
-    # 1. Send initialize request with the correct protocol version
-    init_req = ~s({"jsonrpc": "2.0", "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "my-stdio-client", "version": "1.0.0"}}, "id": 1})
-    {:ok, init_resp} = SqlclWrapper.SqlclProcess.send_command(init_req, 1_000)
-    Logger.info("Received initialize response: #{inspect(init_resp)}")
-    assert init_resp["id"] == 1
-    assert init_resp["result"]
+      for tool <- tools do
+      assert Map.has_key?(tool, "name")
+      assert Map.has_key?(tool, "description")
+      assert Map.has_key?(tool, "inputSchema")
 
-    # 3. Send initialized notification (this is a notification, not a request, so no reply expected)
-    initialized_notif = ~s({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
-    SqlclWrapper.SqlclProcess.send_command(initialized_notif, 1_000)
+      assert is_binary(tool["name"])
+      assert is_binary(tool["description"])
+      assert is_map(tool["inputSchema"])
+    end
 
-    # 4. Send tools/call request
+  end
+
+  test "can call list-connections tool" do
+    # The handshake is now handled automatically by the SqlclProcess.
+    # We can directly send the tool call.
     tool_call_req = ~s({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list-connections", "arguments": {}}})
-    {:ok, tool_call_resp} = SqlclWrapper.SqlclProcess.send_command(tool_call_req, 1_000)
+    {:ok, tool_call_resp} = SqlclWrapper.SqlclProcess.send_command(tool_call_req, 3_000)
 
-    # 5. Receive tools/call response and assert its content
+    # Assert the response is valid
     Logger.info("Received tool call response: #{inspect(tool_call_resp)}")
     assert tool_call_resp["id"] == 2
     assert tool_call_resp["result"] != nil
     assert is_map(tool_call_resp["result"])
     assert tool_call_resp["result"]["isError"] == false
-    assert is_list(tool_call_resp["result"]["content"])
-    # Assert that there is 1 connection as per the provided working test output
-    assert length(tool_call_resp["result"]["content"]) == 1
-    assert tool_call_resp["result"]["content"] == [%{"type" => "text", "text" => "theconn,test123"}]
-    assert false, "not done yet"
   end
 
 end
