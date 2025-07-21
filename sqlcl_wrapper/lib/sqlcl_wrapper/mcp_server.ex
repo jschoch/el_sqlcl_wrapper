@@ -61,6 +61,7 @@ defmodule SqlclWrapper.MCPServer do
         "arguments" => params
       }
     }
+    Logger.info("list connections frame: #{inspect frame}")
     case SqlclWrapper.SqlclProcess.send_command(Jason.encode!(json_rpc_request),5000) do
       {:ok, %{"result" => result}} ->
         {:reply, result, frame}

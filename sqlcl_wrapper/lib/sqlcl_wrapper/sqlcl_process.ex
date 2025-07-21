@@ -272,7 +272,7 @@ defmodule SqlclWrapper.SqlclProcess do
   # Client API
   def send_command(command, timeout \\ 5000) do # Default timeout of 5 seconds
     # Attempt to parse as JSON to determine if it's a request or notification
-    Logger.info("doe sthis even work?")
+    Logger.info("sent command: #{inspect command} and timeout: #{timeout}")
     case Jason.decode(command) do
       {:ok, %{"id" => _id} = _parsed_command} ->
         GenServer.call(__MODULE__, {:send_command, command}, timeout)

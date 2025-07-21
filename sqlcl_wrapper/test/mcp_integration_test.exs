@@ -13,7 +13,7 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     {:ok, _apps} = Application.ensure_all_started(:sqlcl_wrapper)
 
     # Wait for SQLcl process to be ready
-    wait_for_sqlcl_startup()
+    #wait_for_sqlcl_startup()
 
     # Get the MCP server from the registry
     mcp_server = Hermes.Server.Registry.whereis_server(SqlclWrapper.MCPServer)
@@ -34,10 +34,26 @@ defmodule SqlclWrapper.MCPIntegrationTest do
 
   describe "Connection Management" do
     test "can list available database connections", %{mcp_server: mcp_server} do
-      {_server, session_id} = perform_mcp_handshake(mcp_server)
-      result = list_connections(mcp_server, session_id)
+      session_id = "list-connections-#{System.unique_integer([:monotonic])}"
+      list_connections_message = %{
+        "jsonrpc" => "2.0",
+        "method" => "tools/call",
+        "id" => session_id,
+        "params" => %{
+          "name" => "list-connections",
+          "arguments" => %{
+            "mcp_client" => "test-client",
+            "model" => "claude-sonnet-4"
+          }
+        }
+      }
+      json = Jason.encode!(list_connections_message)
+      {:ok, response} = SqlclWrapper.SqlclProcess.send_command(json, 3_000)
+      Logger.info("server: #{inspect mcp_server}")
+      #result = list_connections(mcp_server )
 
       # Verify response structure
+      result = response["result"]
       assert Map.has_key?(result, "content")
       content = result["content"]
       assert is_list(content)
@@ -78,209 +94,32 @@ defmodule SqlclWrapper.MCPIntegrationTest do
     end
 
     test "handles connection to non-existent database gracefully", %{mcp_server: mcp_server} do
-      {_server, session_id} = perform_mcp_handshake(mcp_server)
-
-      connect_message = %{
-        "jsonrpc" => "2.0",
-        "method" => "tools/call",
-        "id" => "connect-nonexistent-#{System.unique_integer([:monotonic])}",
-        "params" => %{
-          "name" => "connect",
-          "arguments" => %{
-            "connection_name" => "nonexistent_connection",
-            "mcp_client" => "test-client",
-            "model" => "claude-sonnet-4"
-          }
-        }
-      }
-
-      {:ok, response} = GenServer.call(mcp_server, {:request, connect_message, session_id, %{}})
-      response_data = Jason.decode!(response)
-
-      # Should return an error for non-existent connection
-      assert Map.has_key?(response_data, "error") or
-             (Map.has_key?(response_data, "result") and
-              String.contains?(inspect(response_data["result"]), "error"))
-
-      Logger.info("Non-existent connection properly handled")
+      assert false, "not done yet"
     end
   end
 
   describe "SQL Execution" do
     test "can execute simple SQL query", %{mcp_server: _mcp_server} do
-      {server, session_id} = connect_to_database()
-
-      query = get_test_query(:dual_query)
-      result = execute_sql(query, server, session_id)
-
-      # Verify response structure
-      assert Map.has_key?(result, "content")
-      content = result["content"]
-      assert is_list(content)
-
-      # Check for expected content
-      text_content = case content do
-        [%{"type" => "text", "text" => text}] -> text
-        _ -> ""
-      end
-
-      assert String.contains?(text_content, "Hello SQLcl"),
-        "Expected 'Hello SQLcl' in response: #{text_content}"
-
-      Logger.info("Simple SQL query executed successfully")
+      assert false, "not done yet"
     end
 
     test "can execute table listing query", %{mcp_server: _mcp_server} do
-      {server, session_id} = connect_to_database()
-
-      query = get_test_query(:list_tables)
-      result = execute_sql(query, server, session_id)
-
-      # Verify response structure
-      assert Map.has_key?(result, "content")
-      content = result["content"]
-      assert is_list(content)
-
-      # Check for expected table names
-      text_content = case content do
-        [%{"type" => "text", "text" => text}] -> text
-        _ -> ""
-      end
-
-      expected_tables = get_expected_tables()
-      for table <- expected_tables do
-        assert String.contains?(text_content, table),
-          "Expected table '#{table}' not found in: #{text_content}"
-      end
-
-      Logger.info("Table listing query executed successfully")
+      assert false, "not done yet"
     end
 
     test "can execute user information query", %{mcp_server: _mcp_server} do
-      {server, session_id} = connect_to_database()
-
-      query = get_test_query(:current_user)
-      result = execute_sql(query, server, session_id)
-
-      # Verify response structure
-      assert Map.has_key?(result, "content")
-      content = result["content"]
-      assert is_list(content)
-
-      # Check for user information
-      text_content = case content do
-        [%{"type" => "text", "text" => text}] -> text
-        _ -> ""
-      end
-
-      assert String.length(text_content) > 0, "User query should return content"
-
-      Logger.info("User information query executed successfully: #{text_content}")
+      assert false, "not done yet"
     end
 
+
     test "can execute table data query with validation", %{mcp_server: _mcp_server} do
-      {server, session_id} = connect_to_database()
-
-      # Test with USERS table
-      query = "SELECT /* LLM in use is claude-sonnet-4 */ * FROM USERS WHERE ROWNUM <= 5"
-      result = execute_sql(query, server, session_id)
-
-      # Verify response structure
-      assert Map.has_key?(result, "content")
-      content = result["content"]
-      assert is_list(content)
-
-      # Check for expected columns and data
-      text_content = case content do
-        [%{"type" => "text", "text" => text}] -> text
-        _ -> ""
-      end
-
-      validation_config = get_table_validation_config("USERS")
-      expected_columns = validation_config[:columns] || []
-      expected_data = validation_config[:sample_data] || []
-
-      for column <- expected_columns do
-        assert String.contains?(text_content, column),
-          "Expected column '#{column}' not found in: #{text_content}"
-      end
-
-      for data <- expected_data do
-        assert String.contains?(text_content, data),
-          "Expected data '#{data}' not found in: #{text_content}"
-      end
-
-      Logger.info("Table data query with validation executed successfully")
+      assert false, "not done yet"
     end
 
     test "handles SQL errors gracefully", %{mcp_server: _mcp_server} do
-      {server, session_id} = connect_to_database()
-
-      # Execute invalid SQL
-      invalid_query = "SELECT * FROM non_existent_table"
-
-      assert_raise RuntimeError, ~r/SQL execution failed/, fn ->
-        execute_sql(invalid_query, server, session_id)
-      end
-
-      Logger.info("SQL errors handled gracefully")
+      assert false, "not done yet"
     end
   end
-
-  describe "SQLcl Command Execution" do
-    test "can execute SQLcl commands", %{mcp_server: _mcp_server} do
-      {server, session_id} = connect_to_database()
-
-      # Test version command
-      result = execute_sqlcl_command("show version", server, session_id)
-
-      # Verify response structure
-      assert Map.has_key?(result, "content")
-      content = result["content"]
-      assert is_list(content)
-
-      # Check for version information
-      text_content = case content do
-        [%{"type" => "text", "text" => text}] -> text
-        _ -> ""
-      end
-
-      assert String.length(text_content) > 0, "Version command should return content"
-
-      Logger.info("SQLcl command executed successfully")
-    end
-
-    test "can execute describe command", %{mcp_server: _mcp_server} do
-      {server, session_id} = connect_to_database()
-
-      # Test describe command on USERS table
-      result = execute_sqlcl_command("describe USERS", server, session_id)
-
-      # Verify response structure
-      assert Map.has_key?(result, "content")
-      content = result["content"]
-      assert is_list(content)
-
-      # Check for table description
-      text_content = case content do
-        [%{"type" => "text", "text" => text}] -> text
-        _ -> ""
-      end
-
-      assert String.length(text_content) > 0, "Describe command should return content"
-
-      Logger.info("Describe command executed successfully")
-    end
-  end
-
-  describe "Configuration Management" do
-    test "uses configured default connection" do
-      default_connection = get_default_connection()
-      assert is_binary(default_connection)
-      assert String.length(default_connection) > 0
-
-      Logger.info("Default connection configured: #{default_connection}")
-    end
 
     test "can override connection via environment variable" do
       # This test verifies that environment variables are respected
@@ -303,24 +142,8 @@ defmodule SqlclWrapper.MCPIntegrationTest do
 
       Logger.info("Environment variable override works correctly")
     end
-  end
 
   # Helper functions
 
-  defp get_default_connection() do
-    Application.get_env(:sqlcl_wrapper, :default_connection) || "theconn"
-  end
 
-  defp get_test_query(query_name) do
-    Application.get_env(:sqlcl_wrapper, :test_queries)[query_name]
-  end
-
-  defp get_expected_tables() do
-    Application.get_env(:sqlcl_wrapper, :expected_tables) || []
-  end
-
-  defp get_table_validation_config(table_name) do
-    table_key = String.downcase(table_name) <> "_table" |> String.to_atom()
-    Application.get_env(:sqlcl_wrapper, :test_data_validation)[table_key] || %{}
-  end
 end

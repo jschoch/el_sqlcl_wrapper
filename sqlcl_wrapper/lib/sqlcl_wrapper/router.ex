@@ -28,6 +28,7 @@ defmodule SqlclWrapper.Router do
   end
 
   defp handle_mcp_request(conn) do
+    Logger.info("handle called")
     try do
       # Try to load the module at runtime
       plug_module = Hermes.Server.Transport.StreamableHTTP.Plug
