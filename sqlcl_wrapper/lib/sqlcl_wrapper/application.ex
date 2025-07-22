@@ -12,7 +12,10 @@ defmodule SqlclWrapper.Application do
     Logger.info("start called bigboy")
     children = [
       Hermes.Server.Registry,
-      {SqlclWrapper.SqlclProcess, transport: :streamable_http, parent: self()}
+      {SqlclWrapper.SqlclProcess, transport: :streamable_http, parent: self()},
+      {SqlclWrapper.MCPServer, transport: :streamable_http},
+      {Bandit, plug: SqlclWrapper.Router},
+      {SqlclWrapper.MCPClient, transport: {:streamable_http, base_url: "http://localhost:4000"}}
     ]
 
     # Start the supervisor
@@ -20,10 +23,10 @@ defmodule SqlclWrapper.Application do
     {:ok, pid} = Supervisor.start_link(children, opts)
 
     # Wait for SqlclProcess to signal it's ready
-    wait_for_sqlcl_process_and_server_ready(3000) # 3 second timeout
+    #wait_for_sqlcl_process_and_server_ready(3000) # 3 second timeout
 
     # Once SqlclProcess is ready, start MCPServer (skip HTTP for now)
-    Supervisor.start_child(pid, {SqlclWrapper.MCPServer, transport: :streamable_http})
+    #Supervisor.start_child(pid, {SqlclWrapper.MCPServer, transport: :streamable_http})
     # TODO: Fix HTTP transport compilation issue
     # Supervisor.start_child(pid, {Bandit, plug: SqlclWrapper.Router})
 

@@ -20,36 +20,6 @@ defmodule SqlclWrapper.IntegrationTestHelper do
     raise "TODO: this doesn't quite work with the refactoring"
     case get_mcp_server() do
       nil -> raise "MCP server not available"
-      mcp_server ->
-        {server, session_id} = perform_mcp_handshake(mcp_server)
-
-        connect_message = %{
-          "jsonrpc" => "2.0",
-          "method" => "tools/call",
-          "id" => "connect-#{System.unique_integer([:monotonic])}",
-          "params" => %{
-            "name" => "connect",
-            "arguments" => %{
-              "connection_name" => connection_name,
-              "mcp_client" => "test-client",
-              "model" => "claude-sonnet-4"
-            }
-          }
-        }
-
-        #{:ok, response} = GenServer.call(server, {:request, connect_message, session_id, %{}})
-        #response_data = Jason.decode!(response)
-        _response = case GenServer.call(server, {:request, connect_message, session_id, %{}}) do
-          {:ok, response} -> response
-          bad ->
-            Logger.info("bad response on database connection was: #{inspect bad}")
-            %{"error" => :bad}
-            raise "Bad #{inspect bad}"
-        end
-
-
-        Logger.info("Connected to database: #{connection_name}")
-        {server, session_id}
     end
   end
 
@@ -74,14 +44,21 @@ defmodule SqlclWrapper.IntegrationTestHelper do
     }
 
     raise "we don't know how to do this quite yet: TODO"
-    response_data = Jason.decode!(response)
+    #response_data = Jason.decode!(response)
 
-    if Map.has_key?(response_data, "error") do
-      Logger.info("Pre crash: #{inspect response_data, pretty: true}")
-      raise "SQLcl command failed: #{inspect(response_data["error"])}"
-    end
+    #if Map.has_key?(response_data, "error") do
+      #Logger.info("Pre crash: #{inspect response_data, pretty: true}")
+      #raise "SQLcl command failed: #{inspect(response_data["error"])}"
+    #end
 
-    response_data["result"]
+    #response_data["result"]
+  end
+
+  @doc """
+  Executes a SQL command through the MCP server.
+  """
+  def execute_sql(command, mcp_server \\ nil, session_id \\ nil) do
+    # not done yet
   end
 
   @doc """
@@ -90,7 +67,7 @@ defmodule SqlclWrapper.IntegrationTestHelper do
   def validate_test_tables(mcp_server \\ nil, session_id \\ nil) do
 
     query = get_test_query(:list_tables)
-    result = execute_sql(query, server, session)
+    result = execute_sql(query, mcp_server, session_id)
 
     expected_tables = get_expected_tables()
     validate_table_existence(result, expected_tables)
@@ -102,7 +79,7 @@ defmodule SqlclWrapper.IntegrationTestHelper do
   def validate_table_data(table_name, mcp_server \\ nil, session_id \\ nil) do
 
     query = "SELECT /* LLM in use is claude-sonnet-4 */ * FROM #{table_name}"
-    result = execute_sql(query, server, session)
+    result = execute_sql(query, mcp_server, session_id)
 
     validation_config = get_table_validation_config(table_name)
     validate_table_structure(result, validation_config)

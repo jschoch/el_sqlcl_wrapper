@@ -1,5 +1,6 @@
 defmodule SqlclWrapper.Router do
   use Plug.Router
+  require Logger
   # this doesn't work
   #require Hermes.Server.Transport.StreamableHTTP.Plug
 

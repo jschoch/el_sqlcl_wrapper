@@ -9,7 +9,7 @@ defmodule SqlclWrapper.PortProcessTest do
 
   setup do
     # The application supervisor starts the process, we just need to wait for it.
-    wait_for_sqlcl_startup()
+    #wait_for_sqlcl_startup()
     :ok
   end
 
@@ -40,7 +40,7 @@ defmodule SqlclWrapper.PortProcessTest do
   test "can call list-connections tool" do
     # The handshake is now handled automatically by the SqlclProcess.
     # We can directly send the tool call.
-    tool_call_req = ~s({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list-connections", "arguments": {}}})
+    tool_call_req = ~s({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list-connections", "arguments": {"mcp_client":"foo","model":"bar"}}})
     {:ok, tool_call_resp} = SqlclWrapper.SqlclProcess.send_command(tool_call_req, 3_000)
 
     # Assert the response is valid
@@ -52,9 +52,10 @@ defmodule SqlclWrapper.PortProcessTest do
   end
 
   test "can do it twice" do
-    tool_call_req = ~s({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list-connections", "arguments": {}}})
+    tool_call_req = ~s({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list-connections", "arguments": {"mcp_client":"foo","model":"bar"}}})
+
     {:ok, tool_call_resp1} = SqlclWrapper.SqlclProcess.send_command(tool_call_req, 3_000)
-    tool_call_req2 = ~s({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list-connections", "arguments": {}}})
+
     {:ok, tool_call_resp2} = SqlclWrapper.SqlclProcess.send_command(tool_call_req, 3_000)
      assert tool_call_resp2["id"] == 2
     assert tool_call_resp2["result"] != nil
