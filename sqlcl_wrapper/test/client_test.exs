@@ -13,8 +13,11 @@ defmodule SqlclWrapper.MCPClientTest do
   end
 
   test "do a thing" do
-    {first, result} = SqlclWrapper.MCPClient.call_tool("echo", %{text: "this will be echoed!"})
-    assert :ok = first
+    #{first, result} = SqlclWrapper.MCPClient.call_tool("initialize", %{mcp_client: "blaz", model: "bluz"})
+    #{first, result} = SqlclWrapper.MCPClient.call_tool("list", %{mcp_client: "blaz", model: "bluz"})
+    SqlclWrapper.MCPClient.get_server_capabilities()
+    {first, result} = SqlclWrapper.MCPClient.call_tool("list-connections", %{mcp_client: "blaz", model: "bluz"})
+    #assert :ok == first, "result was #{inspect( result)}"
     assert false, "not done"
 end
 end

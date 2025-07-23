@@ -2,16 +2,19 @@ defmodule SqlclWrapper.MCPServer do
   use Hermes.Server,
     name: "SQLcl",
     version: "25.2.0.184.2054",
-    capabilities: [:tools]
+    capabilities: [:tools,:resources]
 
   require Logger
+  alias Hermes.Server.Response
+
 
   @impl true
   def init(_client_info, frame) do
     Logger.info("Initializing SqlclWrapper.MCPServer...")
 
     # Register tools
-    frame = frame
+    {:ok,frame
+    |> assign(counter: 0)
     |> register_tool("list-connections",
         description: "List all available oracle named/saved connections in the connections storage",
         input_schema: %{
@@ -45,12 +48,12 @@ defmodule SqlclWrapper.MCPServer do
           model: {:optional, :string, description: "The name and version of the LLM in use"}
         })
 
-    {:ok, frame}
+    }
   end
 
   @impl true
   def handle_tool_call("list-connections", params, frame) do
-    Logger.info("Handling list-connections tool with params: #{inspect(params)}")
+    Logger.info("Handling list-connections tool with params: #{inspect(params)}\n\n#{inspect frame}\n\n")
     request_id = "list-connections-#{System.unique_integer([:monotonic])}"
     json_rpc_request = %{
       "jsonrpc" => "2.0",
@@ -64,7 +67,11 @@ defmodule SqlclWrapper.MCPServer do
     Logger.info("list connections frame: #{inspect frame}")
     case SqlclWrapper.SqlclProcess.send_command(Jason.encode!(json_rpc_request),5000) do
       {:ok, %{"result" => result}} ->
+        Logger.info("LC result #{inspect result}")
+        result = Response.json(Response.tool(),result)
         {:reply, result, frame}
+      {:reply, %{"content" => content}} ->
+          {:reply, content, frame}
       {:error, reason} ->
         Logger.error("Error calling list-connections: #{inspect(reason)}")
         {:reply, %{"error" => "Failed to list connections: #{inspect(reason)}"}, frame}
