@@ -74,6 +74,7 @@ iex -S mix
 - Timeout handling for SQLcl process startup and tool calls
 - Graceful handling of malformed JSON and unexpected responses
 - Port exit status monitoring and cleanup
+- **IMPORTANT**: Avoid dangling case statements like `_ -> []` that silently fail. Instead, crash with descriptive error messages using pattern: `doh -> Logger.info("unexpected #{inspect doh}"); raise "Unexpected value: #{inspect doh}"`
 
 ### Testing Strategy
 - Integration tests verify end-to-end SQLcl communication
