@@ -98,4 +98,60 @@ defmodule SqlclWrapper.MCPClientTest do
     end
 
   end
+
+  test "can run a simple query" do
+    # First get server capabilities and list connections
+    SqlclWrapper.MCPClient.get_server_capabilities()
+    {status, res} = SqlclWrapper.MCPClient.call_tool("list-connections", %{"mcp_client" => "test_client", "model" => "test_model"})
+    assert status == :ok, "Failed to list connections: #{inspect(res)}"
+
+    # Extract connections and connect to default
+    result = res.result
+    connections = case result do
+      %{"content" => [%{"text" => json_text}]} when is_binary(json_text) ->
+        case Jason.decode(json_text) do
+          {:ok, %{"content" => [%{"text" => connections_text}]}} ->
+            connections_text
+            |> String.split(",")
+            |> Enum.map(&String.trim/1)
+            |> Enum.reject(&(&1 == ""))
+          _ -> []
+        end
+      _ -> []
+    end
+
+    expected_connection = get_default_connection()
+    assert Enum.member?(connections, expected_connection), "Expected connection not found"
+
+    # Connect to the database
+    {connect_status, connect_res} = SqlclWrapper.MCPClient.call_tool("connect", %{
+      "connection_name" => expected_connection,
+      "mcp_client" => "test_client",
+      "model" => "test_model"
+    })
+    assert connect_status == :ok, "Failed to connect: #{inspect(connect_res)}"
+
+    # Run a simple select query using test helper
+    query = get_test_query(:simple_select)
+    Logger.info("Running query: #{query}")
+
+    {query_status, query_res} = SqlclWrapper.MCPClient.call_tool("run-sql", %{
+      "mcp_client" => "test_client",
+      "model" => "claude",
+      "sql" => query
+    })
+
+    assert query_status == :ok, "Failed to run query: #{inspect(query_res)}"
+
+    query_result = query_res.result
+    Logger.info("Query result: #{inspect(query_result, pretty: true)}")
+
+    # Verify the query returned content
+    case query_result do
+      %{"content" => content} when is_list(content) ->
+        assert length(content) > 0, "Query should return content"
+      _ ->
+        refute Map.has_key?(query_result, "error"), "Query should not return an error"
+    end
+  end
 end
